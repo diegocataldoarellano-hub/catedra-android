@@ -239,12 +239,28 @@ class CatedraCoreTests {
     @Test
     fun testAcademicPaperServiceLiveSmoke() = runBlocking {
         val service = AcademicPaperService()
-        val res = service.searchPapers("spaced repetition memory learning", onlyOpenAccess = true, sourceFilter = "ALL")
+        val res = service.searchPapers("spaced repetition memory learning", onlyOpenAccess = true, sourceFilter = AcademicPaperService.MODE_ALL)
         assertTrue("La consulta académica debe responder sin excepción: ${res.exceptionOrNull()}", res.isSuccess)
         val papers = res.getOrDefault(emptyList())
-        assertTrue("Debe retornar resultados con PDF abierto (arXiv / Europe PMC / OpenAlex)", papers.isNotEmpty())
+        assertTrue("Debe retornar resultados descargables corroborables", papers.isNotEmpty())
         assertTrue(papers.first().title.isNotBlank())
-        assertTrue(!papers.first().openAccessPdfUrl.isNullOrBlank())
+        assertTrue(papers.first().hasDirectDownload)
+
+        // Verificar modo Solo DOI (CrossRef + DOAJ + Europe PMC)
+        val doiRes = service.searchPapers("epistemologia", onlyOpenAccess = false, sourceFilter = AcademicPaperService.MODE_DOI_ONLY)
+        assertTrue(doiRes.isSuccess)
+        val doiList = doiRes.getOrDefault(emptyList())
+        assertTrue("Debe retornar documentos con DOI verificado", doiList.isNotEmpty() && doiList.all { it.hasVerifiedDoi })
+
+        // Verificar modo Libros Gratuitos (Gutendex EPUB/TXT + Open Library)
+        val bookRes = service.searchPapers("kant", onlyOpenAccess = false, sourceFilter = AcademicPaperService.MODE_FREE_BOOKS)
+        assertTrue(bookRes.isSuccess)
+        val books = bookRes.getOrDefault(emptyList())
+        assertTrue("Debe encontrar libros gratuitos descargables", books.any { it.isBook && it.hasDirectDownload })
+
+        // Verificar Unpaywall legal PDF a partir de un DOI conocido
+        val pdfFromDoi = service.resolveUnpaywallPdf("10.1038/nature12373")
+        assertTrue("Unpaywall debe resolver PDF legal para DOI abierto", !pdfFromDoi.isNullOrBlank())
 
         // Verificar Google Scholar URL + Citas APA 7 y BibTeX
         val scholarUrl = service.buildGoogleScholarUrl("epistemología crítica")
@@ -252,7 +268,7 @@ class CatedraCoreTests {
         val apa = service.formatApaCitation(papers.first())
         val bib = service.formatBibTexCitation(papers.first())
         assertTrue(apa.contains(papers.first().title))
-        assertTrue(bib.startsWith("@article{"))
+        assertTrue(bib.startsWith("@article{") || bib.startsWith("@book{"))
     }
 
     @Test

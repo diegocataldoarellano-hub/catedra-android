@@ -959,16 +959,59 @@ class CatedraViewModel(application: Application) : AndroidViewModel(application)
     }
 
     fun importPaperPdf(paper: PaperResult) {
-        val pdfUrl = paper.openAccessPdfUrl
-        if (pdfUrl.isNullOrBlank()) {
-            studyPaperFromAbstract(paper)
-            return
-        }
         viewModelScope.launch {
             _uiState.update { it.copy(downloadingPaperId = paper.id) }
-            val safeId = paper.id.replace(Regex("[^a-zA-Z0-9_-]"), "_")
+            val safeId = paper.id.replace(Regex("[^a-zA-Z0-9_-]"), "_").take(50)
+
+            // 1. Si es libro gratuito con EPUB (Project Gutenberg / Gutendex)
+            val epubUrl = paper.openAccessEpubUrl
+            if (!epubUrl.isNullOrBlank()) {
+                val dest = File(knowledgeStore.papersDir, "$safeId.epub")
+                val res = paperService.downloadFile(epubUrl, dest)
+                _uiState.update { it.copy(downloadingPaperId = null) }
+                if (res.isSuccess) {
+                    importDocumentFromUri(
+                        uri = Uri.fromFile(dest),
+                        forcedFileName = "${paper.title.take(60)}.epub",
+                        forcedMime = "application/epub+zip",
+                        localCachedPath = dest.absolutePath,
+                        paperMeta = paper
+                    )
+                    return@launch
+                }
+            }
+
+            // 2. Si es libro gratuito en texto plano UTF-8
+            val txtUrl = paper.openAccessTxtUrl
+            if (!txtUrl.isNullOrBlank()) {
+                val dest = File(knowledgeStore.papersDir, "$safeId.txt")
+                val res = paperService.downloadFile(txtUrl, dest)
+                _uiState.update { it.copy(downloadingPaperId = null) }
+                if (res.isSuccess) {
+                    importDocumentFromUri(
+                        uri = Uri.fromFile(dest),
+                        forcedFileName = "${paper.title.take(60)}.txt",
+                        forcedMime = "text/plain",
+                        localCachedPath = dest.absolutePath,
+                        paperMeta = paper
+                    )
+                    return@launch
+                }
+            }
+
+            // 3. PDF abierto directo o resolución legal vía Unpaywall a partir del DOI verificado
+            val resolvedPdfUrl = paper.openAccessPdfUrl?.takeIf { it.isNotBlank() }
+                ?: paper.doi?.let { doi -> paperService.resolveUnpaywallPdf(doi) }
+
+            if (resolvedPdfUrl.isNullOrBlank()) {
+                _uiState.update { it.copy(downloadingPaperId = null) }
+                showMessage("Sin PDF abierto en Unpaywall para este DOI; abriendo ficha corroborable para estudiar.")
+                studyPaperFromAbstract(paper)
+                return@launch
+            }
+
             val dest = File(knowledgeStore.papersDir, "$safeId.pdf")
-            val downloadRes = paperService.downloadPdf(pdfUrl, dest)
+            val downloadRes = paperService.downloadFile(resolvedPdfUrl, dest)
             _uiState.update { it.copy(downloadingPaperId = null) }
             downloadRes.onSuccess { file ->
                 importDocumentFromUri(
@@ -979,7 +1022,7 @@ class CatedraViewModel(application: Application) : AndroidViewModel(application)
                     paperMeta = paper
                 )
             }.onFailure { err ->
-                showMessage("${err.message} Abriendo ficha desde el resumen...")
+                showMessage("${err.message} Abriendo ficha corroborable desde el resumen...")
                 studyPaperFromAbstract(paper)
             }
         }
@@ -990,11 +1033,13 @@ class CatedraViewModel(application: Application) : AndroidViewModel(application)
             appendLine("# ${paper.title}")
             appendLine("Autores: ${paper.authors}")
             appendLine("Año: ${paper.year ?: "N/D"} | Fuente: ${paper.venue} (${paper.source}) | Citas: ${paper.citationCount}")
+            if (paper.verificationBadge.isNotBlank()) appendLine("Verificación: ${paper.verificationBadge}")
             if (!paper.doi.isNullOrBlank()) appendLine("DOI: ${paper.doi}")
-            if (!paper.landingPageUrl.isNullOrBlank()) appendLine("Enlace: ${paper.landingPageUrl}")
+            if (!paper.isbn.isNullOrBlank()) appendLine("ISBN: ${paper.isbn}")
+            if (!paper.landingPageUrl.isNullOrBlank()) appendLine("Fuente oficial: ${paper.landingPageUrl}")
             appendLine()
-            appendLine("## Resumen / Abstract")
-            appendLine(paper.abstractText.ifBlank { "Resumen no disponible en abierto; consulta el enlace DOI para texto completo." })
+            appendLine("## Resumen / Descripción")
+            appendLine(paper.abstractText.ifBlank { "Resumen no disponible en abierto; abre el enlace oficial DOI/fuente para consultar el texto completo." })
         }
         createTextStudyDocument(paper.title, body, paperMeta = paper)
     }

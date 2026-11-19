@@ -62,6 +62,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.catedra.app.data.model.PaperResult
+import com.catedra.app.data.remote.AcademicPaperService
 import com.catedra.app.ui.CatedraUiState
 import com.catedra.app.ui.theme.LocalCatedraColors
 
@@ -112,7 +113,7 @@ fun PaperSearchScreen(
             TextField(
                 value = query,
                 onValueChange = { query = it },
-                placeholder = { Text("Buscar papers (OpenAlex + arXiv)...", color = colors.textMuted) },
+                placeholder = { Text("Tema, autor, libro gratuito o DOI...", color = colors.textMuted) },
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                 keyboardActions = KeyboardActions(onSearch = { onSearch(query, onlyOa, sourceFilter, sortCited) }),
@@ -132,13 +133,43 @@ fun PaperSearchScreen(
         }
         HorizontalDivider(thickness = 0.5.dp, color = colors.divider)
 
-        // Filtros limpios + Google Scholar + Importar DOI/URL
+        // Fila 1: Modos de búsqueda corroborable (Todo, Solo DOI, Libros gratis, Por Autor, arXiv)
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .horizontalScroll(rememberScrollState())
-                .padding(horizontal = 12.dp, vertical = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                .padding(horizontal = 12.dp, vertical = 7.dp),
+            horizontalArrangement = Arrangement.spacedBy(7.dp)
+        ) {
+            PaperFilterChip("Todo corroborable", sourceFilter == AcademicPaperService.MODE_ALL) {
+                sourceFilter = AcademicPaperService.MODE_ALL
+                if (query.isNotBlank()) onSearch(query, onlyOa, sourceFilter, sortCited)
+            }
+            PaperFilterChip("Solo con DOI", sourceFilter == AcademicPaperService.MODE_DOI_ONLY) {
+                sourceFilter = AcademicPaperService.MODE_DOI_ONLY
+                if (query.isNotBlank()) onSearch(query, onlyOa, sourceFilter, sortCited)
+            }
+            PaperFilterChip("Libros gratuitos", sourceFilter == AcademicPaperService.MODE_FREE_BOOKS) {
+                sourceFilter = AcademicPaperService.MODE_FREE_BOOKS
+                if (query.isNotBlank()) onSearch(query, onlyOa, sourceFilter, sortCited)
+            }
+            PaperFilterChip("Por Autor", sourceFilter == AcademicPaperService.MODE_AUTHOR) {
+                sourceFilter = AcademicPaperService.MODE_AUTHOR
+                if (query.isNotBlank()) onSearch(query, onlyOa, sourceFilter, sortCited)
+            }
+            PaperFilterChip("arXiv", sourceFilter == AcademicPaperService.MODE_ARXIV) {
+                sourceFilter = AcademicPaperService.MODE_ARXIV
+                if (query.isNotBlank()) onSearch(query, onlyOa, sourceFilter, sortCited)
+            }
+        }
+
+        // Fila 2: Filtros de descarga, citas, Google Scholar e importación directa DOI/URL
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState())
+                .padding(start = 12.dp, end = 12.dp, bottom = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(7.dp)
         ) {
             Row(
                 modifier = Modifier
@@ -164,20 +195,12 @@ fun PaperSearchScreen(
                 Spacer(Modifier.width(4.dp))
                 Text("Pegar DOI / URL", style = MaterialTheme.typography.labelSmall, color = colors.accent)
             }
-            PaperFilterChip("Solo PDF abierto", onlyOa) {
+            PaperFilterChip("Solo descargables", onlyOa) {
                 onlyOa = !onlyOa
                 if (query.isNotBlank()) onSearch(query, onlyOa, sourceFilter, sortCited)
             }
             PaperFilterChip("Más citados", sortCited) {
                 sortCited = !sortCited
-                if (query.isNotBlank()) onSearch(query, onlyOa, sourceFilter, sortCited)
-            }
-            PaperFilterChip("Todas las fuentes", sourceFilter == "ALL") {
-                sourceFilter = "ALL"
-                if (query.isNotBlank()) onSearch(query, onlyOa, sourceFilter, sortCited)
-            }
-            PaperFilterChip("Solo arXiv", sourceFilter == "ARXIV") {
-                sourceFilter = "ARXIV"
                 if (query.isNotBlank()) onSearch(query, onlyOa, sourceFilter, sortCited)
             }
         }
@@ -224,7 +247,7 @@ fun PaperSearchScreen(
                 contentAlignment = Alignment.Center
             ) {
                 Text(
-                    text = "Busca artículos científicos, autores o conceptos clave en OpenAlex (250M+ trabajos) y arXiv.\nPuedes descargar PDFs abiertos directo a un nuevo chat docente o compararlos con tu lectura actual.",
+                    text = "Busca fuentes académicas 100% corroborables:\n• Artículos con DOI verificado (DOAJ arbitrado, CrossRef, Europe PMC, OpenAlex, arXiv + Unpaywall)\n• Libros gratuitos descargables en EPUB/TXT (Project Gutenberg, Open Library, Internet Archive)\n• Búsqueda dedicada por Autor y enlace directo a Google Scholar.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = colors.textSecondary
                 )
@@ -350,27 +373,33 @@ private fun PaperResultRow(
             .clickable { expanded = !expanded }
             .padding(horizontal = 16.dp, vertical = 13.dp)
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(
-                text = paper.source,
-                style = MaterialTheme.typography.labelSmall,
-                color = colors.accent,
-                fontWeight = FontWeight.SemiBold
-            )
+        Row(
+            modifier = Modifier.horizontalScroll(rememberScrollState()),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            if (paper.verificationBadge.isNotBlank()) {
+                Text(
+                    text = paper.verificationBadge.uppercase(),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (paper.hasDirectDownload) colors.success else colors.accent,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 10.sp
+                )
+            } else {
+                Text(
+                    text = paper.source,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = colors.accent,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
             if (paper.year != null) {
                 Text("${paper.year}", style = MaterialTheme.typography.labelSmall, color = colors.textMuted)
             }
             if (paper.citationCount > 0) {
-                Text("${paper.citationCount} citas", style = MaterialTheme.typography.labelSmall, color = colors.textMuted)
-            }
-            if (!paper.openAccessPdfUrl.isNullOrBlank()) {
-                Text(
-                    text = "PDF ABIERTO",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = colors.success,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 10.sp
-                )
+                val metric = if (paper.source == "Gutenberg") "${paper.citationCount} desc." else "${paper.citationCount} citas"
+                Text(metric, style = MaterialTheme.typography.labelSmall, color = colors.textMuted)
             }
         }
         Spacer(Modifier.height(4.dp))
@@ -387,6 +416,23 @@ private fun PaperResultRow(
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
         )
+        if (!paper.doi.isNullOrBlank()) {
+            Text(
+                text = "DOI: ${paper.doi.removePrefix("https://doi.org/")}",
+                style = MaterialTheme.typography.labelSmall,
+                color = colors.citationText,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        } else if (!paper.isbn.isNullOrBlank()) {
+            Text(
+                text = "ISBN: ${paper.isbn}",
+                style = MaterialTheme.typography.labelSmall,
+                color = colors.citationText,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
         if (paper.abstractText.isNotBlank()) {
             Spacer(Modifier.height(6.dp))
             Text(
@@ -402,7 +448,14 @@ private fun PaperResultRow(
             modifier = Modifier.horizontalScroll(rememberScrollState()),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            if (!paper.openAccessPdfUrl.isNullOrBlank()) {
+            val primaryImportLabel = when {
+                !paper.openAccessEpubUrl.isNullOrBlank() -> "Importar Libro (EPUB)"
+                !paper.openAccessTxtUrl.isNullOrBlank() -> "Importar Libro (TXT)"
+                !paper.openAccessPdfUrl.isNullOrBlank() -> "Importar PDF"
+                paper.hasVerifiedDoi -> "Buscar PDF (Unpaywall)"
+                else -> null
+            }
+            if (primaryImportLabel != null) {
                 Row(
                     modifier = Modifier
                         .clip(RoundedCornerShape(16.dp))
@@ -417,7 +470,7 @@ private fun PaperResultRow(
                         Icon(Icons.Rounded.Download, contentDescription = null, tint = Color.White, modifier = Modifier.size(15.dp))
                     }
                     Spacer(Modifier.width(5.dp))
-                    Text("Importar PDF", style = MaterialTheme.typography.labelSmall, color = Color.White)
+                    Text(primaryImportLabel, style = MaterialTheme.typography.labelSmall, color = Color.White)
                 }
             }
             Row(

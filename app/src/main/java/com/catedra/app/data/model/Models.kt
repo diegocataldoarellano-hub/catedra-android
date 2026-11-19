@@ -112,8 +112,19 @@ data class PaperResult(
     val openAccessPdfUrl: String?,
     val landingPageUrl: String?,
     val doi: String?,
-    val source: String // "OpenAlex" or "arXiv"
-)
+    val source: String, // "DOAJ", "CrossRef", "OpenAlex", "Europe PMC", "arXiv", "Gutenberg", "Open Library", "Internet Archive"
+    val isbn: String? = null,
+    val openAccessEpubUrl: String? = null,
+    val openAccessTxtUrl: String? = null,
+    val isBook: Boolean = false,
+    val verificationBadge: String = ""
+) {
+    val hasDirectDownload: Boolean
+        get() = !openAccessPdfUrl.isNullOrBlank() || !openAccessEpubUrl.isNullOrBlank() || !openAccessTxtUrl.isNullOrBlank()
+
+    val hasVerifiedDoi: Boolean
+        get() = !doi.isNullOrBlank() && doi.contains("10.")
+}
 
 data class DriveFileItem(
     val id: String,
