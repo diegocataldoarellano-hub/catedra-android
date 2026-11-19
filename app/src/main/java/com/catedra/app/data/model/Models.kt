@@ -161,7 +161,7 @@ data class AppSettings(
     val speechRate: Float = 1.05f,
     val autoReadTeacherReplies: Boolean = false,
     val themeMode: AppThemeMode = AppThemeMode.SYSTEM,
-    val driveBridgeUrl: String = "",
+    val driveBridgeUrl: String = DEFAULT_DRIVE_BRIDGE_URL,
     val driveAccessToken: String = "",
     val driveRefreshToken: String = "",
     val driveTokenExpiresAt: Long = 0L,
@@ -169,6 +169,10 @@ data class AppSettings(
     val driveNotesFolderId: String = "",
     val exportFolderUri: String = ""
 ) {
+    companion object {
+        const val DEFAULT_DRIVE_BRIDGE_URL = "https://catedra-portal.onrender.com"
+    }
+
     fun hasActiveKey(): Boolean = when (provider) {
         AiProvider.GEMINI -> geminiApiKey.isNotBlank()
         AiProvider.NVIDIA_NIM -> nvidiaApiKey.isNotBlank()

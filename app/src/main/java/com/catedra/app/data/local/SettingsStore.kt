@@ -37,7 +37,8 @@ class SettingsStore(context: Context) {
             speechRate = prefs.getFloat("speech_rate", 1.05f),
             autoReadTeacherReplies = prefs.getBoolean("auto_read_replies", false),
             themeMode = theme,
-            driveBridgeUrl = prefs.getString("drive_bridge_url", "") ?: "",
+            driveBridgeUrl = (prefs.getString("drive_bridge_url", AppSettings.DEFAULT_DRIVE_BRIDGE_URL) ?: "")
+                .ifBlank { AppSettings.DEFAULT_DRIVE_BRIDGE_URL },
             driveAccessToken = prefs.getString("drive_access_token", "") ?: "",
             driveRefreshToken = prefs.getString("drive_refresh_token", "") ?: "",
             driveTokenExpiresAt = prefs.getLong("drive_token_expires_at", 0L),
