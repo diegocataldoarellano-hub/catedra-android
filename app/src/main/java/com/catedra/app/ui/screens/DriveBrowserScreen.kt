@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -18,6 +19,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.Login
@@ -46,6 +49,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.catedra.app.data.local.formatCompactSize
@@ -105,6 +109,25 @@ fun DriveBrowserScreen(
             }
         }
         HorizontalDivider(thickness = 0.5.dp, color = colors.divider)
+
+        if (uiState.isImportingDocument) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(colors.surfaceElevated)
+                    .padding(horizontal = 16.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = colors.accent)
+                Spacer(Modifier.width(10.dp))
+                Text(
+                    text = uiState.importStatusText.ifBlank { "Descargando e indexando desde Google Drive..." },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = colors.textPrimary
+                )
+            }
+            HorizontalDivider(thickness = 0.5.dp, color = colors.divider)
+        }
 
         // 1. Acceso instantáneo híbrido (Android SAF -> abre Google Drive y almacenamiento local sin OAuth)
         Row(
@@ -232,6 +255,8 @@ fun DriveBrowserScreen(
                     onValueChange = { search = it },
                     placeholder = { Text("Buscar en mi Google Drive...") },
                     singleLine = true,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                    keyboardActions = KeyboardActions(onSearch = { onRefreshDrive(search) }),
                     modifier = Modifier.weight(1f)
                 )
                 Spacer(Modifier.width(8.dp))
@@ -258,7 +283,11 @@ fun DriveBrowserScreen(
                     )
                 }
             } else {
-                LazyColumn(modifier = Modifier.fillMaxSize()) {
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .navigationBarsPadding()
+                ) {
                     items(uiState.driveFiles, key = { it.id }) { item ->
                         val isForm = item.mimeType == "application/vnd.google-apps.form"
                         val docType = DocType.fromFileNameAndMime(item.name, item.mimeType)

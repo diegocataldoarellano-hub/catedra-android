@@ -22,8 +22,8 @@ android {
         applicationId = "com.catedra.app"
         minSdk = 26
         targetSdk = 34
-        versionCode = 5
-        versionName = "1.4.0"
+        versionCode = 6
+        versionName = "1.4.1"
 
         buildConfigField("String", "DEFAULT_NVIDIA_API_KEY", "\"${defaultNvidiaKey.replace("\"", "")}\"")
         buildConfigField("String", "DEFAULT_GEMINI_API_KEY", "\"${defaultGeminiKey.replace("\"", "")}\"")

@@ -584,8 +584,9 @@ object UniversalDocumentParser {
             }
         }
         return spineIds.mapNotNull { id ->
-            val href = idToHref[id]?.substringBefore('#') ?: return@mapNotNull null
-            if (baseDir.isBlank()) href else "$baseDir/$href"
+            val rawHref = idToHref[id]?.substringBefore('#') ?: return@mapNotNull null
+            val decodedHref = runCatching { java.net.URLDecoder.decode(rawHref, "UTF-8") }.getOrDefault(rawHref)
+            if (baseDir.isBlank()) decodedHref else "$baseDir/$decodedHref"
         }
     }
 

@@ -81,6 +81,7 @@ fun DocumentReaderScreen(
     ttsState: TtsUiState,
     onBack: () -> Unit,
     onJumpToSection: (Int) -> Unit,
+    onStepSection: (Int) -> Unit,
     onReadAloudFromHere: (Int) -> Unit,
     onTranslateSection: () -> Unit,
     onAskTeacherPage: (Boolean) -> Unit,
@@ -102,11 +103,18 @@ fun DocumentReaderScreen(
     var showVisualMode by remember(doc.id) { mutableStateOf(supportsVisual) }
     var showTocSheet by remember { mutableStateOf(false) }
     var showQuickNoteDialog by remember { mutableStateOf(false) }
+    val textScrollState = rememberScrollState()
 
-    // Sincronización automática: cuando la barra de lectura en voz alta avanza o retrocede de página,
-    // el Lector cambia automáticamente la página visible para seguir la narración.
-    LaunchedEffect(ttsState.currentSectionIndex, ttsState.isDocumentReading) {
+    // Resetear scroll al inicio cuando cambia de página o se activa traducción
+    LaunchedEffect(curIdx, uiState.readerTranslatedText) {
+        textScrollState.scrollTo(0)
+    }
+
+    // Sincronización automática: cuando la barra de lectura en voz alta del MISMO documento
+    // avanza o retrocede de página, el Lector cambia automáticamente la página visible.
+    LaunchedEffect(ttsState.currentSectionIndex, ttsState.isDocumentReading, ttsState.documentId) {
         if (ttsState.isDocumentReading &&
+            ttsState.documentId == doc.id &&
             ttsState.currentSectionIndex in sections.indices &&
             ttsState.currentSectionIndex != uiState.readerSectionIndex
         ) {
@@ -119,7 +127,7 @@ fun DocumentReaderScreen(
             .fillMaxSize()
             .background(colors.background)
     ) {
-        // Top Bar minimalista con botones directos de Anterior/Siguiente página
+        // Top Bar minimalista optimizada para pantallas compactas (~390dp) con < y > directos
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -128,10 +136,10 @@ fun DocumentReaderScreen(
                 .padding(horizontal = 4.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            IconButton(onClick = onBack) {
-                Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Volver", tint = colors.textPrimary)
+            IconButton(onClick = onBack, modifier = Modifier.size(40.dp)) {
+                Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Volver", tint = colors.textPrimary, modifier = Modifier.size(22.dp))
             }
-            Column(modifier = Modifier.weight(1f)) {
+            Column(modifier = Modifier.weight(1f).padding(end = 2.dp)) {
                 Text(
                     text = doc.title,
                     style = MaterialTheme.typography.titleMedium,
@@ -140,41 +148,46 @@ fun DocumentReaderScreen(
                     overflow = TextOverflow.Ellipsis
                 )
                 Text(
-                    text = currentSection?.let { "${it.label} · ${curIdx + 1} / ${sections.size}" } ?: "",
+                    text = currentSection?.let { "${it.label} · ${curIdx + 1}/${sections.size}" } ?: "",
                     style = MaterialTheme.typography.labelSmall,
-                    color = colors.textSecondary
+                    color = colors.textSecondary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
             if (sections.size > 1) {
                 IconButton(
-                    onClick = { onJumpToSection(curIdx - 1) },
+                    onClick = { onStepSection(-1) },
                     enabled = curIdx > 0,
                     modifier = Modifier.size(34.dp)
                 ) {
                     Icon(
                         Icons.AutoMirrored.Rounded.KeyboardArrowLeft,
                         contentDescription = "Página anterior",
-                        tint = if (curIdx > 0) colors.textPrimary else colors.textMuted
+                        tint = if (curIdx > 0) colors.textPrimary else colors.textMuted,
+                        modifier = Modifier.size(22.dp)
                     )
                 }
                 IconButton(
-                    onClick = { onJumpToSection(curIdx + 1) },
+                    onClick = { onStepSection(1) },
                     enabled = curIdx < sections.lastIndex,
                     modifier = Modifier.size(34.dp)
                 ) {
                     Icon(
                         Icons.AutoMirrored.Rounded.KeyboardArrowRight,
                         contentDescription = "Página siguiente",
-                        tint = if (curIdx < sections.lastIndex) colors.textPrimary else colors.textMuted
+                        tint = if (curIdx < sections.lastIndex) colors.textPrimary else colors.textMuted,
+                        modifier = Modifier.size(22.dp)
                     )
                 }
             }
             if (supportsVisual) {
-                IconButton(onClick = { showVisualMode = !showVisualMode }) {
+                IconButton(onClick = { showVisualMode = !showVisualMode }, modifier = Modifier.size(36.dp)) {
                     Icon(
                         imageVector = if (showVisualMode) Icons.Rounded.TextFields else Icons.Rounded.Image,
                         contentDescription = "Alternar vista visual/texto",
-                        tint = colors.accent
+                        tint = colors.accent,
+                        modifier = Modifier.size(20.dp)
                     )
                 }
             }
@@ -183,20 +196,22 @@ fun DocumentReaderScreen(
                     showVisualMode = false
                     onTranslateSection()
                 },
-                enabled = !uiState.isTranslatingSection
+                enabled = !uiState.isTranslatingSection,
+                modifier = Modifier.size(36.dp)
             ) {
                 if (uiState.isTranslatingSection) {
-                    CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp, color = colors.nvidiaGreen)
+                    CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = colors.nvidiaGreen)
                 } else {
                     Icon(
                         imageVector = Icons.Rounded.Translate,
                         contentDescription = "Traducir con NVIDIA Riva",
-                        tint = if (uiState.readerTranslatedText != null) colors.nvidiaGreen else colors.textSecondary
+                        tint = if (uiState.readerTranslatedText != null) colors.nvidiaGreen else colors.textSecondary,
+                        modifier = Modifier.size(20.dp)
                     )
                 }
             }
-            IconButton(onClick = { showTocSheet = true }) {
-                Icon(Icons.AutoMirrored.Rounded.FormatListBulleted, contentDescription = "Índice", tint = colors.textSecondary)
+            IconButton(onClick = { showTocSheet = true }, modifier = Modifier.size(36.dp)) {
+                Icon(Icons.AutoMirrored.Rounded.FormatListBulleted, contentDescription = "Índice", tint = colors.textSecondary, modifier = Modifier.size(20.dp))
             }
         }
         HorizontalDivider(thickness = 0.5.dp, color = colors.divider)
@@ -271,7 +286,7 @@ fun DocumentReaderScreen(
                     Column(
                         modifier = Modifier
                             .fillMaxSize()
-                            .verticalScroll(rememberScrollState())
+                            .verticalScroll(textScrollState)
                             .padding(horizontal = 20.dp, vertical = 18.dp)
                     ) {
                         if (currentSection != null) {
@@ -328,7 +343,7 @@ fun DocumentReaderScreen(
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     IconButton(
-                        onClick = { onJumpToSection(curIdx - 1) },
+                        onClick = { onStepSection(-1) },
                         enabled = curIdx > 0,
                         modifier = Modifier.size(34.dp)
                     ) {
@@ -345,7 +360,7 @@ fun DocumentReaderScreen(
                         modifier = Modifier.clickable { showTocSheet = true }
                     )
                     IconButton(
-                        onClick = { onJumpToSection(curIdx + 1) },
+                        onClick = { onStepSection(1) },
                         enabled = curIdx < sections.lastIndex,
                         modifier = Modifier.size(34.dp)
                     ) {

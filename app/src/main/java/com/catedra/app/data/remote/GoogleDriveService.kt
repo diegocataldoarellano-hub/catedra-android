@@ -21,6 +21,12 @@ data class RefreshedDriveAuth(
     val expiresAtMs: Long
 )
 
+data class DownloadedDriveFile(
+    val file: File,
+    val displayName: String,
+    val mimeType: String
+)
+
 /**
  * Integración completa con Google Drive REST API v3 + Bridge OAuth2 en Render:
  * 1) Conexión en 1 toque vía OAuth2 (sin exponer Client Secret dentro del APK).
@@ -165,7 +171,7 @@ class GoogleDriveService {
         accessToken: String,
         item: DriveFileItem,
         targetDir: File
-    ): Result<Pair<File, String>> = withContext(Dispatchers.IO) {
+    ): Result<DownloadedDriveFile> = withContext(Dispatchers.IO) {
         runCatching {
             val (downloadUrl, extension, resolvedMime) = when (item.mimeType) {
                 "application/vnd.google-apps.document" -> Triple(
@@ -196,7 +202,8 @@ class GoogleDriveService {
             } else {
                 safeName
             }
-            val dest = File(targetDir, "${item.id.take(8)}_$finalName")
+            val safeIdPrefix = item.id.replace(Regex("[^a-zA-Z0-9]"), "").take(8).ifBlank { "drv" }
+            val dest = File(targetDir, "${safeIdPrefix}_$finalName")
 
             val req = Request.Builder()
                 .url(downloadUrl)
@@ -209,7 +216,7 @@ class GoogleDriveService {
                 val body = resp.body ?: error("Archivo vacío en Google Drive")
                 FileOutputStream(dest).use { out -> body.byteStream().copyTo(out) }
             }
-            dest to resolvedMime
+            DownloadedDriveFile(file = dest, displayName = finalName, mimeType = resolvedMime)
         }
     }
 
@@ -225,7 +232,7 @@ class GoogleDriveService {
     ): Result<String> = withContext(Dispatchers.IO) {
         runCatching {
             require(accessToken.isNotBlank()) { "Conecta tu cuenta de Google Drive primero." }
-            val targetFolderId = folderId?.takeIf { it.isNotBlank() } ?: ensureNamedFolder(accessToken, folderName)
+            var targetFolderId = folderId?.takeIf { it.isNotBlank() } ?: ensureNamedFolder(accessToken, folderName)
             val existingFileId = findExistingNoteId(accessToken, fileName, targetFolderId)
 
             if (existingFileId != null) {
@@ -241,30 +248,35 @@ class GoogleDriveService {
                 return@runCatching targetFolderId
             }
 
-            val metadata = JSONObject().apply {
-                put("name", fileName)
-                put("mimeType", "text/markdown")
-                if (targetFolderId.isNotBlank()) {
-                    put("parents", JSONArray().put(targetFolderId))
+            fun postMultipart(parentId: String): Int {
+                val metadata = JSONObject().apply {
+                    put("name", fileName)
+                    put("mimeType", "text/markdown")
+                    if (parentId.isNotBlank()) {
+                        put("parents", JSONArray().put(parentId))
+                    }
                 }
+                val body = MultipartBody.Builder()
+                    .setType("multipart/related".toMediaType())
+                    .addPart(metadata.toString().toRequestBody(jsonMedia))
+                    .addPart(markdownContent.toRequestBody("text/markdown; charset=utf-8".toMediaType()))
+                    .build()
+                val req = Request.Builder()
+                    .url("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart")
+                    .header("Authorization", "Bearer ${accessToken.trim()}")
+                    .post(body)
+                    .build()
+                return client.newCall(req).execute().use { it.code }
             }
 
-            val body = MultipartBody.Builder()
-                .setType("multipart/related".toMediaType())
-                .addPart(metadata.toString().toRequestBody(jsonMedia))
-                .addPart(markdownContent.toRequestBody("text/markdown; charset=utf-8".toMediaType()))
-                .build()
-
-            val req = Request.Builder()
-                .url("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart")
-                .header("Authorization", "Bearer ${accessToken.trim()}")
-                .post(body)
-                .build()
-
-            client.newCall(req).execute().use { resp ->
-                if (!resp.isSuccessful) error("No se pudo subir la nota a Drive (HTTP ${resp.code})")
-                targetFolderId
+            var code = postMultipart(targetFolderId)
+            // Si la carpeta guardada en caché fue borrada en Drive (404), recrearla automáticamente y reintentar
+            if (code == 404 && !folderId.isNullOrBlank()) {
+                targetFolderId = ensureNamedFolder(accessToken, folderName)
+                code = postMultipart(targetFolderId)
             }
+            if (code !in 200..299) error("No se pudo subir la nota a Drive (HTTP $code)")
+            targetFolderId
         }
     }
 

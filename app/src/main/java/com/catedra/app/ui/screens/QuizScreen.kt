@@ -103,9 +103,9 @@ fun QuizScreen(
     val colors = LocalCatedraColors.current
     val context = LocalContext.current
 
-    var activeTab by remember { mutableStateOf("Quiz") } // "Quiz", "Tarjetas", "Guía"
-    var selectedCount by remember(quizState.questionCount) { mutableIntStateOf(quizState.questionCount) }
-    var selectedDifficulty by remember(quizState.difficulty) { mutableStateOf(quizState.difficulty) }
+    var activeTab by remember(quizState.documentId) { mutableStateOf("Quiz") } // "Quiz", "Tarjetas", "Guía"
+    var selectedCount by remember(quizState.documentId, quizState.questionCount) { mutableIntStateOf(quizState.questionCount) }
+    var selectedDifficulty by remember(quizState.documentId, quizState.difficulty) { mutableStateOf(quizState.difficulty) }
     var showFormsSheet by remember { mutableStateOf(false) }
 
     val answeredCount = quizState.selectedAnswers.size
@@ -414,8 +414,9 @@ fun QuizScreen(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .navigationBarsPadding()
                     .padding(horizontal = 20.dp)
-                    .padding(bottom = 28.dp),
+                    .padding(bottom = 24.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 Text("Exportar cuestionario a Google Forms", style = MaterialTheme.typography.titleMedium, color = colors.textPrimary)

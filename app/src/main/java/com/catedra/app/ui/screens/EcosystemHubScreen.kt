@@ -115,6 +115,25 @@ fun EcosystemHubScreen(
         }
         HorizontalDivider(thickness = 0.5.dp, color = colors.divider)
 
+        if (uiState.isImportingDocument) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(colors.surfaceElevated)
+                    .padding(horizontal = 16.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = colors.accent)
+                Spacer(Modifier.width(10.dp))
+                Text(
+                    text = uiState.importStatusText.ifBlank { "Importando paper académico..." },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = colors.textPrimary
+                )
+            }
+            HorizontalDivider(thickness = 0.5.dp, color = colors.divider)
+        }
+
         Column(
             modifier = Modifier
                 .fillMaxSize()

@@ -270,7 +270,7 @@ class DocenteAiEngine {
                 [{"category":"COMPRENDIDO|ERROR_CORREGIDO|ANALISIS_CRITICA|CITA|DUDA","citation":"Pág. X o vacío","content":"síntesis breve, clara y densa en conocimiento (máx 240 caracteres)"}]
             """.trimIndent()
 
-            val raw = callSimpleCompletion(activeProvider, settings, sys, "Diálogo reciente:\n$transcript")
+            val raw = callSimpleCompletion(activeProvider, settings, sys, "Diálogo reciente:\n$transcript", maxTokens = 4096)
             parseDistilledJson(raw)
         }
     }
@@ -434,7 +434,7 @@ class DocenteAiEngine {
                 ]
             """.trimIndent()
 
-            val raw = callSimpleCompletion(active, settings, sys, "Contenido del documento:\n$ctx")
+            val raw = callSimpleCompletion(active, settings, sys, "Contenido del documento:\n$ctx", maxTokens = 8192)
             val parsed = parseQuizJson(raw)
             if (parsed.isEmpty()) error("No se pudo estructurar el cuestionario. Intenta nuevamente.")
             parsed
@@ -478,7 +478,7 @@ class DocenteAiEngine {
                 ]
             """.trimIndent()
 
-            val raw = callSimpleCompletion(active, settings, sys, "Documento:\n$ctx")
+            val raw = callSimpleCompletion(active, settings, sys, "Documento:\n$ctx", maxTokens = 8192)
             val parsed = parseFlashcardsJson(raw)
             if (parsed.isEmpty()) error("No se pudieron generar las tarjetas. Intenta nuevamente.")
             parsed
@@ -518,7 +518,7 @@ class DocenteAiEngine {
                 (3 malentendidos comunes al estudiar este texto y cómo evitarlos)
             """.trimIndent()
 
-            callSimpleCompletion(active, settings, sys, "Contenido del documento:\n$ctx").trim()
+            callSimpleCompletion(active, settings, sys, "Contenido del documento:\n$ctx", maxTokens = 8192).trim()
         }
     }
 
@@ -593,18 +593,66 @@ class DocenteAiEngine {
         return sb.toString()
     }
 
-    internal fun parseQuizJson(raw: String): List<QuizQuestion> {
+    internal fun extractJsonObjectsResilient(raw: String): List<JSONObject> {
         val cleaned = raw
-            .replace(Regex("(?s)^```(?:json)?\\s*"), "")
-            .replace(Regex("(?s)\\s*```$"), "")
+            .replace(Regex("(?s)```(?:json)?\\s*"), "")
+            .replace(Regex("(?s)\\s*```"), "")
             .trim()
         val start = cleaned.indexOf('[')
+        if (start < 0) return emptyList()
         val end = cleaned.lastIndexOf(']')
-        if (start < 0 || end <= start) return emptyList()
-        val arr = JSONArray(cleaned.substring(start, end + 1))
+        if (end > start) {
+            val whole = runCatching {
+                val arr = JSONArray(cleaned.substring(start, end + 1))
+                (0 until arr.length()).mapNotNull { i -> arr.optJSONObject(i) }
+            }.getOrNull()
+            if (!whole.isNullOrEmpty()) return whole
+        }
+        // Recuperación resiliente si el modelo truncó el JSON al final (ej. en pregunta 14 de 15):
+        // extrae todos los objetos JSON top-level balanceados { ... } dentro del array.
+        val recovered = mutableListOf<JSONObject>()
+        var depth = 0
+        var inString = false
+        var escaped = false
+        var objStart = -1
+        for (i in (start + 1) until cleaned.length) {
+            val ch = cleaned[i]
+            if (inString) {
+                if (escaped) {
+                    escaped = false
+                } else if (ch == '\\') {
+                    escaped = true
+                } else if (ch == '"') {
+                    inString = false
+                }
+                continue
+            }
+            when (ch) {
+                '"' -> inString = true
+                '{' -> {
+                    if (depth == 0) objStart = i
+                    depth++
+                }
+                '}' -> {
+                    if (depth > 0) {
+                        depth--
+                        if (depth == 0 && objStart >= 0) {
+                            runCatching { JSONObject(cleaned.substring(objStart, i + 1)) }
+                                .getOrNull()
+                                ?.let { recovered.add(it) }
+                            objStart = -1
+                        }
+                    }
+                }
+            }
+        }
+        return recovered
+    }
+
+    internal fun parseQuizJson(raw: String): List<QuizQuestion> {
+        val objects = extractJsonObjectsResilient(raw)
         val out = mutableListOf<QuizQuestion>()
-        for (i in 0 until arr.length()) {
-            val obj = arr.getJSONObject(i)
+        for (obj in objects) {
             val qText = obj.optString("question", "").trim()
             val optsArr = obj.optJSONArray("options") ?: continue
             val opts = mutableListOf<String>()
@@ -616,7 +664,7 @@ class DocenteAiEngine {
             val correctIdx = obj.optInt("correctIndex", 0).coerceIn(0, opts.lastIndex)
             out.add(
                 QuizQuestion(
-                    id = i + 1,
+                    id = out.size + 1,
                     question = qText,
                     options = opts,
                     correctIndex = correctIdx,
@@ -632,23 +680,15 @@ class DocenteAiEngine {
     }
 
     internal fun parseFlashcardsJson(raw: String): List<FlashcardItem> {
-        val cleaned = raw
-            .replace(Regex("(?s)^```(?:json)?\\s*"), "")
-            .replace(Regex("(?s)\\s*```$"), "")
-            .trim()
-        val start = cleaned.indexOf('[')
-        val end = cleaned.lastIndexOf(']')
-        if (start < 0 || end <= start) return emptyList()
-        val arr = JSONArray(cleaned.substring(start, end + 1))
+        val objects = extractJsonObjectsResilient(raw)
         val out = mutableListOf<FlashcardItem>()
-        for (i in 0 until arr.length()) {
-            val obj = arr.getJSONObject(i)
+        for (obj in objects) {
             val front = obj.optString("front", "").trim()
             val back = obj.optString("back", "").trim()
             if (front.isBlank() || back.isBlank()) continue
             out.add(
                 FlashcardItem(
-                    id = i + 1,
+                    id = out.size + 1,
                     front = front,
                     hint = obj.optString("hint", "").trim(),
                     back = back,
@@ -998,7 +1038,8 @@ class DocenteAiEngine {
         systemPrompt: String,
         history: List<ChatMessage>,
         userPrompt: String,
-        imageBase64: String?
+        imageBase64: String?,
+        maxTokens: Int = 4096
     ): Pair<String, String?> {
         val contents = JSONArray()
         for (msg in history) {
@@ -1040,7 +1081,7 @@ class DocenteAiEngine {
                 "generationConfig",
                 JSONObject().apply {
                     put("temperature", 0.45)
-                    put("maxOutputTokens", 2048)
+                    put("maxOutputTokens", maxTokens)
                 }
             )
         }
@@ -1093,7 +1134,8 @@ class DocenteAiEngine {
         systemPrompt: String,
         history: List<ChatMessage>,
         userPrompt: String,
-        imageBase64: String?
+        imageBase64: String?,
+        maxTokens: Int = 4096
     ): Pair<String, String?> {
         val messages = JSONArray()
         if (systemPrompt.isNotBlank()) {
@@ -1124,7 +1166,7 @@ class DocenteAiEngine {
             put("model", model)
             put("messages", messages)
             put("temperature", 0.45)
-            put("max_tokens", 4096)
+            put("max_tokens", maxTokens)
             put("stream", false)
         }
 
@@ -1165,7 +1207,8 @@ class DocenteAiEngine {
         provider: AiProvider,
         settings: AppSettings,
         systemPrompt: String,
-        userPrompt: String
+        userPrompt: String,
+        maxTokens: Int = 4096
     ): String {
         return when (provider) {
             AiProvider.GEMINI -> callGemini(
@@ -1174,7 +1217,8 @@ class DocenteAiEngine {
                 systemPrompt = systemPrompt,
                 history = emptyList(),
                 userPrompt = userPrompt,
-                imageBase64 = null
+                imageBase64 = null,
+                maxTokens = maxTokens
             ).first
             AiProvider.NVIDIA_NIM -> callOpenAiCompatible(
                 baseUrl = NVIDIA_BASE_URL,
@@ -1183,7 +1227,8 @@ class DocenteAiEngine {
                 systemPrompt = systemPrompt,
                 history = emptyList(),
                 userPrompt = userPrompt,
-                imageBase64 = null
+                imageBase64 = null,
+                maxTokens = maxTokens
             ).first
             else -> {
                 val base = if (provider == AiProvider.OPENROUTER && settings.openAiBaseUrl.contains("openai.com")) {
@@ -1198,7 +1243,8 @@ class DocenteAiEngine {
                     systemPrompt = systemPrompt,
                     history = emptyList(),
                     userPrompt = userPrompt,
-                    imageBase64 = null
+                    imageBase64 = null,
+                    maxTokens = maxTokens
                 ).first
             }
         }
@@ -1245,17 +1291,9 @@ class DocenteAiEngine {
     }
 
     internal fun parseDistilledJson(raw: String): List<DistilledNoteDraft> {
-        val cleaned = raw
-            .replace(Regex("(?s)^```(?:json)?\\s*"), "")
-            .replace(Regex("(?s)\\s*```$"), "")
-            .trim()
-        val start = cleaned.indexOf('[')
-        val end = cleaned.lastIndexOf(']')
-        if (start < 0 || end <= start) return emptyList()
-        val arr = JSONArray(cleaned.substring(start, end + 1))
+        val objects = extractJsonObjectsResilient(raw)
         val out = mutableListOf<DistilledNoteDraft>()
-        for (i in 0 until arr.length()) {
-            val obj = arr.getJSONObject(i)
+        for (obj in objects) {
             val catName = obj.optString("category", "COMPRENDIDO").uppercase()
             val cat = runCatching { NoteCategory.valueOf(catName) }.getOrDefault(NoteCategory.COMPRENDIDO)
             val content = obj.optString("content", "").trim()

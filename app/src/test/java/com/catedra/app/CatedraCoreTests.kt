@@ -333,4 +333,57 @@ class CatedraCoreTests {
         assertFalse(WhatsAppDocsScanner.isAllowedDocumentName("sticker.webp"))
         assertFalse(WhatsAppDocsScanner.isAllowedDocumentName("app.apk"))
     }
+
+    @Test
+    fun testTruncatedQuizJsonRecoveryAndEpubUrlDecodedSpine() {
+        val engine = DocenteAiEngine()
+        // Simula una salida de 15 preguntas donde el modelo se truncó a mitad de la pregunta 3 (sin cerrar ']')
+        val truncatedQuiz = """
+            Aquí tienes el cuestionario:
+            [
+              {
+                "difficulty": "Fácil",
+                "question": "¿Cuál es la tesis central del capítulo 1?",
+                "hint": "Revisa el primer párrafo del capítulo.",
+                "options": ["Opción 1", "Opción 2", "Opción 3", "Opción 4"],
+                "correctIndex": 0,
+                "citation": "Pág. 1",
+                "explanation": "El autor afirma explícitamente la opción 1.",
+                "misconception": "Confundir ejemplo con tesis."
+              },
+              {
+                "difficulty": "Difícil",
+                "question": "¿Qué supuesto implícito subyace al argumento?",
+                "hint": "Fíjate en la premisa sobre causalidad.",
+                "options": ["A", "B", "C", "D"],
+                "correctIndex": 2,
+                "citation": "Pág. 9",
+                "explanation": "C sintetiza la premisa oculta.",
+                "misconception": "Ignorar el alcance del método."
+              },
+              {
+                "difficulty": "Difícil",
+                "question": "Pregunta truncada sin cierre
+        """.trimIndent()
+        val recovered = engine.parseQuizJson(truncatedQuiz)
+        assertEquals("Debe recuperar las 2 preguntas completas previas al truncado", 2, recovered.size)
+        assertEquals(1, recovered[0].id)
+        assertEquals(2, recovered[1].id)
+        assertEquals("Difícil", recovered[1].difficultyLabel)
+
+        // Verifica EPUB con href codificado con %20 (espacios) en content.opf
+        val opf = """
+            <package>
+              <manifest>
+                <item id="c1" href="chapter%201.xhtml"/>
+              </manifest>
+              <spine><itemref idref="c1"/></spine>
+            </package>
+        """.trimIndent()
+        val ch1 = "<html><body><h1>Capítulo Uno</h1><p>Contenido suficientemente largo para pasar el umbral mínimo de indexación de EPUB.</p></body></html>"
+        val zipBytes = buildZip(mapOf("OEBPS/content.opf" to opf, "OEBPS/chapter 1.xhtml" to ch1))
+        val sections = UniversalDocumentParser.parseEpub(ByteArrayInputStream(zipBytes))
+        assertEquals(1, sections.size)
+        assertTrue(sections[0].content.contains("Capítulo Uno"))
+    }
 }

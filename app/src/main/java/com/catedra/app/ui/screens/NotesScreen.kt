@@ -34,6 +34,7 @@ import androidx.compose.material.icons.rounded.CloudUpload
 import androidx.compose.material.icons.rounded.Code
 import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.FolderCopy
+import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.Mic
 import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material.icons.rounded.Stop
@@ -242,20 +243,50 @@ fun NotesScreen(
         } else {
             // Vista previa del archivo plano .md / .txt real
             HorizontalDivider(thickness = 0.5.dp, color = colors.divider)
-            SelectionContainer {
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+            ) {
+                SelectionContainer {
+                    Text(
+                        text = markdownPreview,
+                        style = MaterialTheme.typography.bodySmall.copy(
+                            fontFamily = FontFamily.Monospace,
+                            lineHeight = 19.sp
+                        ),
+                        color = colors.textPrimary,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .verticalScroll(rememberScrollState())
+                            .padding(16.dp)
+                    )
+                }
+            }
+        }
+
+        // Indicador en vivo al dictar nota de voz
+        if (voiceState.isListening) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(colors.accentSoft)
+                    .padding(horizontal = 14.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(Icons.Rounded.GraphicEq, contentDescription = null, tint = colors.accent, modifier = Modifier.size(19.dp))
+                Spacer(Modifier.width(8.dp))
                 Text(
-                    text = markdownPreview,
-                    style = MaterialTheme.typography.bodySmall.copy(
-                        fontFamily = FontFamily.Monospace,
-                        lineHeight = 19.sp
-                    ),
+                    text = voiceState.partialText.ifBlank { "Escuchando nota de voz..." },
+                    style = MaterialTheme.typography.bodySmall,
                     color = colors.textPrimary,
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxWidth()
-                        .verticalScroll(rememberScrollState())
-                        .padding(16.dp)
+                    modifier = Modifier.weight(1f),
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
                 )
+                IconButton(onClick = onStopVoice, modifier = Modifier.size(28.dp)) {
+                    Icon(Icons.Rounded.Stop, contentDescription = "Detener dictado", tint = colors.danger, modifier = Modifier.size(18.dp))
+                }
             }
         }
 

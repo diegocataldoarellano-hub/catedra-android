@@ -107,6 +107,7 @@ fun ChatScreen(
     onSendToNotebookLm: () -> Unit,
     onFindRelatedPapers: () -> Unit,
     onShareNotesTxt: () -> Unit,
+    onShowMessage: (String) -> Unit,
     onToggleTtsPlayPause: () -> Unit,
     onPrevTtsSection: () -> Unit,
     onNextTtsSection: () -> Unit,
@@ -279,6 +280,7 @@ fun ChatScreen(
                     onCopy = {
                         val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                         cm.setPrimaryClip(ClipData.newPlainText("Cátedra", msg.content))
+                        onShowMessage("Mensaje copiado al portapapeles.")
                     }
                 )
             }

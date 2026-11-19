@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -235,6 +236,25 @@ fun PaperSearchScreen(
         }
         HorizontalDivider(thickness = 0.5.dp, color = colors.divider)
 
+        if (uiState.isImportingDocument) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(colors.surfaceElevated)
+                    .padding(horizontal = 16.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = colors.accent)
+                Spacer(Modifier.width(10.dp))
+                Text(
+                    text = uiState.importStatusText.ifBlank { "Importando documento académico..." },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = colors.textPrimary
+                )
+            }
+            HorizontalDivider(thickness = 0.5.dp, color = colors.divider)
+        }
+
         if (uiState.isSearchingPapers) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator(color = colors.accent)
@@ -253,7 +273,11 @@ fun PaperSearchScreen(
                 )
             }
         } else {
-            LazyColumn(modifier = Modifier.fillMaxSize()) {
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .navigationBarsPadding()
+            ) {
                 items(uiState.paperResults, key = { it.id }) { paper ->
                     PaperResultRow(
                         paper = paper,

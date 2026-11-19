@@ -20,6 +20,7 @@ data class TtsUiState(
     val isReady: Boolean = false,
     val isPlaying: Boolean = false,
     val isDocumentReading: Boolean = false,
+    val documentId: String = "",
     val currentTitle: String = "",
     val currentSectionIndex: Int = 0, // 0-based
     val totalSections: Int = 0,
@@ -55,6 +56,7 @@ class VoiceAndTtsManager(private val context: Context) {
     val voiceState: StateFlow<VoiceInputState> = _voiceState.asStateFlow()
 
     private var readingSections: List<DocSection> = emptyList()
+    private var readingDocId: String = ""
     private var readingDocTitle: String = ""
     private var currentChunks: List<String> = emptyList()
     private var sectionCursor: Int = 0
@@ -112,6 +114,7 @@ class VoiceAndTtsManager(private val context: Context) {
             return
         }
         readingSections = listOf(DocSection(1, "Docente", "Respuesta", chunks.joinToString("\n")))
+        readingDocId = ""
         readingDocTitle = "Docente"
         currentChunks = chunks
         sectionCursor = 0
@@ -119,6 +122,7 @@ class VoiceAndTtsManager(private val context: Context) {
         _ttsState.value = _ttsState.value.copy(
             isPlaying = true,
             isDocumentReading = false,
+            documentId = "",
             currentTitle = "Escuchando al Docente",
             currentSectionIndex = 0,
             totalSections = 1,
@@ -128,11 +132,17 @@ class VoiceAndTtsManager(private val context: Context) {
         speakCurrentChunk(isSingleMessage = true)
     }
 
-    fun startReadingDocument(docTitle: String, sections: List<DocSection>, startSectionZeroBased: Int = 0) {
+    fun startReadingDocument(
+        docId: String,
+        docTitle: String,
+        sections: List<DocSection>,
+        startSectionZeroBased: Int = 0
+    ) {
         if (sections.isEmpty()) return
         stopSpeaking()
         onSingleSpeechDone = null
         readingSections = sections
+        readingDocId = docId
         readingDocTitle = docTitle
         sectionCursor = startSectionZeroBased.coerceIn(0, sections.lastIndex)
         loadSectionChunks(sectionCursor)
@@ -147,6 +157,7 @@ class VoiceAndTtsManager(private val context: Context) {
         _ttsState.value = _ttsState.value.copy(
             isPlaying = true,
             isDocumentReading = true,
+            documentId = readingDocId,
             currentTitle = "$readingDocTitle · ${sec.label}",
             currentSectionIndex = secIdx,
             totalSections = readingSections.size,
@@ -176,7 +187,14 @@ class VoiceAndTtsManager(private val context: Context) {
         } else {
             val callback = onSingleSpeechDone
             onSingleSpeechDone = null
-            _ttsState.value = _ttsState.value.copy(isPlaying = false, isDocumentReading = false)
+            _ttsState.value = _ttsState.value.copy(
+                isPlaying = false,
+                isDocumentReading = false,
+                documentId = "",
+                currentTitle = "",
+                currentChunkIndex = 0,
+                totalChunksInSection = 0
+            )
             callback?.invoke()
         }
     }
@@ -192,19 +210,31 @@ class VoiceAndTtsManager(private val context: Context) {
         }
     }
 
-    fun skipSection(delta: Int) {
-        if (readingSections.isEmpty()) return
-        val next = (sectionCursor + delta).coerceIn(0, readingSections.lastIndex)
+    fun jumpToSection(zeroBasedIndex: Int) {
+        if (!_ttsState.value.isDocumentReading || readingSections.isEmpty()) return
+        val next = zeroBasedIndex.coerceIn(0, readingSections.lastIndex)
         tts?.stop()
         sectionCursor = next
         loadSectionChunks(sectionCursor)
         speakCurrentChunk(false)
     }
 
+    fun skipSection(delta: Int) {
+        if (!_ttsState.value.isDocumentReading || readingSections.isEmpty()) return
+        jumpToSection(sectionCursor + delta)
+    }
+
     fun stopSpeaking() {
         onSingleSpeechDone = null
         tts?.stop()
-        _ttsState.value = _ttsState.value.copy(isPlaying = false, isDocumentReading = false)
+        _ttsState.value = _ttsState.value.copy(
+            isPlaying = false,
+            isDocumentReading = false,
+            documentId = "",
+            currentTitle = "",
+            currentChunkIndex = 0,
+            totalChunksInSection = 0
+        )
     }
 
     fun startListening(target: VoiceTarget, onFinalResult: (String, VoiceTarget) -> Unit) {

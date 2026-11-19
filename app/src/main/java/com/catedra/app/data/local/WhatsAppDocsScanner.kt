@@ -65,6 +65,9 @@ object WhatsAppDocsScanner {
     fun detectInitialWhatsAppUri(): Pair<Uri, String> {
         val extRoot = Environment.getExternalStorageDirectory()
         val detectedRel = CANDIDATE_RELATIVE_PATHS.firstOrNull { rel ->
+            val dir = File(extRoot, rel)
+            dir.exists() && (dir.listFiles()?.isNotEmpty() == true)
+        } ?: CANDIDATE_RELATIVE_PATHS.firstOrNull { rel ->
             File(extRoot, rel).exists()
         } ?: CANDIDATE_RELATIVE_PATHS.first()
 

@@ -20,6 +20,8 @@ import androidx.browser.customtabs.CustomTabColorSchemeParams
 import androidx.browser.customtabs.CustomTabsIntent
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -66,6 +68,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
+        setIntent(intent)
         handleIncomingIntent(intent)
     }
 
@@ -181,7 +184,13 @@ private fun CatedraRoot(viewModel: CatedraViewModel) {
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
             putExtra(DocumentsContract.EXTRA_INITIAL_URI, initialUri)
         }
-        whatsAppTreeLauncher.launch(intent)
+        runCatching { whatsAppTreeLauncher.launch(intent) }.onFailure {
+            runCatching {
+                whatsAppTreeLauncher.launch(Intent(Intent.ACTION_OPEN_DOCUMENT_TREE))
+            }.onFailure {
+                viewModel.showMessage("No se pudo abrir el selector de carpetas en este dispositivo.")
+            }
+        }
     }
 
     fun launchPickSingleWhatsAppDocument() {
@@ -193,7 +202,9 @@ private fun CatedraRoot(viewModel: CatedraViewModel) {
             putExtra(DocumentsContract.EXTRA_INITIAL_URI, initialUri)
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
         }
-        whatsAppSingleDocLauncher.launch(intent)
+        runCatching { whatsAppSingleDocLauncher.launch(intent) }.onFailure {
+            openDocumentLauncher.launch(WhatsAppDocsScanner.DOCUMENT_ONLY_MIME_TYPES)
+        }
     }
 
     val cameraLauncher = rememberLauncherForActivityResult(
@@ -234,11 +245,16 @@ private fun CatedraRoot(viewModel: CatedraViewModel) {
     }
 
     fun launchCameraScan() {
-        val dir = File(context.cacheDir, "camera").apply { mkdirs() }
-        val file = File(dir, "scan_${System.currentTimeMillis()}.jpg")
-        pendingCameraFile = file
-        val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
-        cameraLauncher.launch(uri)
+        runCatching {
+            val dir = File(context.cacheDir, "camera").apply { mkdirs() }
+            val file = File(dir, "scan_${System.currentTimeMillis()}.jpg")
+            pendingCameraFile = file
+            val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+            cameraLauncher.launch(uri)
+        }.onFailure {
+            pendingCameraFile = null
+            viewModel.showMessage("No se pudo abrir la cámara en este dispositivo.")
+        }
     }
 
     fun launchAnyDocumentPicker() {
@@ -277,7 +293,14 @@ private fun CatedraRoot(viewModel: CatedraViewModel) {
 
     CatedraTheme(themeMode = uiState.settings.themeMode) {
         Scaffold(
-            snackbarHost = { SnackbarHost(snackbarHostState) }
+            snackbarHost = {
+                SnackbarHost(
+                    hostState = snackbarHostState,
+                    modifier = Modifier
+                        .navigationBarsPadding()
+                        .imePadding()
+                )
+            }
         ) { _ ->
             Box(modifier = Modifier.fillMaxSize()) {
                 when (val screen = uiState.currentScreen) {
@@ -333,6 +356,7 @@ private fun CatedraRoot(viewModel: CatedraViewModel) {
                             onSendToNotebookLm = { viewModel.navigateTo(CatedraScreen.Ecosystem) },
                             onFindRelatedPapers = viewModel::openRelatedPapersForActiveDocument,
                             onShareNotesTxt = { shareNotes(asTxt = true) },
+                            onShowMessage = viewModel::showMessage,
                             onToggleTtsPlayPause = viewModel.voiceManager::togglePlayPauseDocument,
                             onPrevTtsSection = { viewModel.skipTtsAndReaderSection(-1) },
                             onNextTtsSection = { viewModel.skipTtsAndReaderSection(1) },
@@ -346,7 +370,8 @@ private fun CatedraRoot(viewModel: CatedraViewModel) {
                             uiState = uiState,
                             ttsState = ttsState,
                             onBack = { viewModel.navigateBack() },
-                            onJumpToSection = viewModel::jumpReaderToSection,
+                            onJumpToSection = { idx -> viewModel.jumpReaderToSection(idx, syncTtsIfReading = true) },
+                            onStepSection = viewModel::skipTtsAndReaderSection,
                             onReadAloudFromHere = viewModel::startReadingActiveDocumentAloud,
                             onTranslateSection = viewModel::translateCurrentReaderSection,
                             onAskTeacherPage = viewModel::askAboutCurrentReaderPage,

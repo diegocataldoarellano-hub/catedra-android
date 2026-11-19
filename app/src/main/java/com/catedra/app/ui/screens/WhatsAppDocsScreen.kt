@@ -125,6 +125,51 @@ fun WhatsAppDocsScreen(
         }
         HorizontalDivider(thickness = 0.5.dp, color = colors.divider)
 
+        if (uiState.isImportingDocument) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(colors.surfaceElevated)
+                    .padding(horizontal = 16.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = waGreen)
+                Spacer(Modifier.width(10.dp))
+                Text(
+                    text = uiState.importStatusText.ifBlank { "Abriendo documento de WhatsApp..." },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = colors.textPrimary
+                )
+            }
+            HorizontalDivider(thickness = 0.5.dp, color = colors.divider)
+        }
+
+        val decodedTree = remember(uiState.settings.whatsappTreeUri) {
+            android.net.Uri.decode(uiState.settings.whatsappTreeUri)
+        }
+        val isLinkedToSentSubfolder = isLinked &&
+            (decodedTree.endsWith("/Sent", ignoreCase = true) || decodedTree.endsWith(":Sent", ignoreCase = true))
+        if (isLinkedToSentSubfolder) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(colors.warning.copy(alpha = 0.14f))
+                    .clickable(onClick = onLinkWhatsAppFolder)
+                    .padding(horizontal = 14.dp, vertical = 9.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(Icons.Rounded.FolderOpen, contentDescription = null, tint = colors.warning, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    text = "Estás viendo la subcarpeta 'Sent' (enviados). Toca aquí para elegir la carpeta principal de documentos recibidos.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = colors.textPrimary,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+            HorizontalDivider(thickness = 0.5.dp, color = colors.divider)
+        }
+
         if (!isLinked && uiState.whatsappDocs.isEmpty()) {
             // Pantalla limpia de vinculación única (1 toque)
             Column(

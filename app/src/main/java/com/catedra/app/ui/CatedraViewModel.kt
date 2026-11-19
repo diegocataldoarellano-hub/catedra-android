@@ -135,8 +135,19 @@ class CatedraViewModel(application: Application) : AndroidViewModel(application)
 
     fun navigateTo(screen: CatedraScreen) {
         val current = _uiState.value.currentScreen
+        if (current is CatedraScreen.Chat && screen !is CatedraScreen.Chat) {
+            if (_uiState.value.continuousVoiceMode) {
+                voiceManager.stopListening()
+                _uiState.update { it.copy(continuousVoiceMode = false) }
+            }
+        }
         if (current != screen) {
-            backStack.addLast(current)
+            if (backStack.lastOrNull() == screen) {
+                backStack.removeLast()
+            } else {
+                backStack.addLast(current)
+                while (backStack.size > 25) backStack.removeFirst()
+            }
         }
         _uiState.update { it.copy(currentScreen = screen) }
         when (screen) {
@@ -153,7 +164,8 @@ class CatedraViewModel(application: Application) : AndroidViewModel(application)
             }
             is CatedraScreen.Quiz -> {
                 loadDocumentSession(screen.documentId)
-                if (_uiState.value.quizState.documentId != screen.documentId || _uiState.value.quizState.questions.isEmpty()) {
+                val q = _uiState.value.quizState
+                if (q.documentId != screen.documentId || q.questions.isEmpty()) {
                     generateQuizForActiveDocument()
                 }
             }
@@ -176,8 +188,12 @@ class CatedraViewModel(application: Application) : AndroidViewModel(application)
     }
 
     fun navigateBack(): Boolean {
+        val current = _uiState.value.currentScreen
+        if (current is CatedraScreen.Chat && _uiState.value.continuousVoiceMode) {
+            voiceManager.stopListening()
+        }
         if (backStack.isEmpty()) {
-            if (_uiState.value.currentScreen != CatedraScreen.Home) {
+            if (current != CatedraScreen.Home) {
                 _uiState.update { it.copy(currentScreen = CatedraScreen.Home, continuousVoiceMode = false) }
                 refreshHome()
                 return true
@@ -185,11 +201,12 @@ class CatedraViewModel(application: Application) : AndroidViewModel(application)
             return false
         }
         val prev = backStack.removeLast()
+        val keepContinuous = prev is CatedraScreen.Chat && _uiState.value.continuousVoiceMode
         if (prev is CatedraScreen.Home) {
             _uiState.update { it.copy(currentScreen = prev, continuousVoiceMode = false) }
             refreshHome()
         } else {
-            _uiState.update { it.copy(currentScreen = prev) }
+            _uiState.update { it.copy(currentScreen = prev, continuousVoiceMode = keepContinuous) }
         }
         return true
     }
@@ -221,6 +238,7 @@ class CatedraViewModel(application: Application) : AndroidViewModel(application)
 
     private fun loadDocumentSession(docId: String) {
         val doc = db.getAllDocuments().firstOrNull { it.id == docId } ?: return
+        val switchingDoc = _uiState.value.activeDocument?.id != docId
         val sections = knowledgeStore.loadSections(docId)
         val messages = db.getMessages(docId)
         val notes = db.getNotes(docId)
@@ -231,7 +249,11 @@ class CatedraViewModel(application: Application) : AndroidViewModel(application)
                 activeSections = sections,
                 activeMessages = messages,
                 activeNotes = notes,
-                activeNoteFileBytes = noteBytes
+                activeNoteFileBytes = noteBytes,
+                readerSectionIndex = if (switchingDoc) 0 else it.readerSectionIndex,
+                readerVisualBitmap = if (switchingDoc) null else it.readerVisualBitmap,
+                readerTranslatedText = if (switchingDoc) null else it.readerTranslatedText,
+                isTranslatingSection = if (switchingDoc) false else it.isTranslatingSection
             )
         }
     }
@@ -372,8 +394,19 @@ class CatedraViewModel(application: Application) : AndroidViewModel(application)
     }
 
     fun renameDocument(docId: String, newTitle: String) {
-        if (newTitle.isBlank()) return
-        db.renameDocument(docId, newTitle)
+        val clean = newTitle.trim()
+        if (clean.isBlank()) return
+        val oldDoc = db.getAllDocuments().firstOrNull { it.id == docId }
+        val oldNoteFile = oldDoc?.let { knowledgeStore.noteFileFor(it) }
+        db.renameDocument(docId, clean)
+        val updatedDoc = db.getAllDocuments().firstOrNull { it.id == docId }
+        if (updatedDoc != null) {
+            val newNoteFile = knowledgeStore.noteFileFor(updatedDoc)
+            if (oldNoteFile != null && oldNoteFile != newNoteFile && oldNoteFile.exists()) {
+                oldNoteFile.delete()
+            }
+            knowledgeStore.writeMarkdownNotesFile(updatedDoc, db.getNotes(docId))
+        }
         refreshHome()
         if (_uiState.value.activeDocument?.id == docId) {
             loadDocumentSession(docId)
@@ -550,7 +583,7 @@ class CatedraViewModel(application: Application) : AndroidViewModel(application)
         navigateTo(CatedraScreen.Reader(doc.id, targetIdx.coerceAtLeast(0)))
     }
 
-    fun jumpReaderToSection(zeroBasedIndex: Int) {
+    fun jumpReaderToSection(zeroBasedIndex: Int, syncTtsIfReading: Boolean = false) {
         val doc = _uiState.value.activeDocument ?: return
         val sections = _uiState.value.activeSections
         val safeIdx = zeroBasedIndex.coerceIn(0, (sections.size - 1).coerceAtLeast(0))
@@ -563,6 +596,13 @@ class CatedraViewModel(application: Application) : AndroidViewModel(application)
             )
         }
 
+        if (syncTtsIfReading) {
+            val tts = voiceManager.ttsState.value
+            if (tts.isDocumentReading && tts.documentId == doc.id && tts.currentSectionIndex != safeIdx) {
+                voiceManager.jumpToSection(safeIdx)
+            }
+        }
+
         if (doc.docType == DocType.PDF || doc.docType == DocType.PAPER || doc.docType == DocType.IMAGE) {
             viewModelScope.launch {
                 val bmp = if (doc.docType == DocType.IMAGE) {
@@ -570,7 +610,9 @@ class CatedraViewModel(application: Application) : AndroidViewModel(application)
                 } else {
                     UniversalDocumentParser.renderPdfPageBitmap(appContext, doc.sourceUri, doc.localCachedPath, safeIdx)
                 }
-                _uiState.update { it.copy(readerVisualBitmap = bmp, isLoadingVisualPage = false) }
+                if (_uiState.value.activeDocument?.id == doc.id && _uiState.value.readerSectionIndex == safeIdx) {
+                    _uiState.update { it.copy(readerVisualBitmap = bmp, isLoadingVisualPage = false) }
+                }
             }
         } else {
             _uiState.update { it.copy(readerVisualBitmap = null, isLoadingVisualPage = false) }
@@ -585,24 +627,23 @@ class CatedraViewModel(application: Application) : AndroidViewModel(application)
         if (!translated.isNullOrBlank() && fromSectionZeroBased == _uiState.value.readerSectionIndex) {
             voiceManager.speakSingleMessage(translated)
         } else {
-            voiceManager.startReadingDocument(doc.title, sections, fromSectionZeroBased)
+            voiceManager.startReadingDocument(doc.id, doc.title, sections, fromSectionZeroBased)
         }
     }
 
     /**
      * Cambia simultáneamente la página visible en el Lector y la sección del reproductor de voz
-     * al pulsar Anterior/Siguiente en la barra superior.
+     * al pulsar Anterior/Siguiente en la barra superior o en el reproductor.
      */
     fun skipTtsAndReaderSection(delta: Int) {
+        val doc = _uiState.value.activeDocument ?: return
         val sections = _uiState.value.activeSections
         if (sections.isEmpty()) return
         val tts = voiceManager.ttsState.value
-        val baseIdx = if (tts.isDocumentReading) tts.currentSectionIndex else _uiState.value.readerSectionIndex
+        val sameDocTts = tts.isDocumentReading && tts.documentId == doc.id
+        val baseIdx = if (sameDocTts) tts.currentSectionIndex else _uiState.value.readerSectionIndex
         val nextIdx = (baseIdx + delta).coerceIn(0, sections.lastIndex)
-        jumpReaderToSection(nextIdx)
-        if (tts.isDocumentReading || tts.isPlaying) {
-            voiceManager.skipSection(delta)
-        }
+        jumpReaderToSection(nextIdx, syncTtsIfReading = sameDocTts)
     }
 
     fun translateCurrentReaderSection() {
@@ -1121,23 +1162,35 @@ class CatedraViewModel(application: Application) : AndroidViewModel(application)
         val cur = _uiState.value.quizState
         val count = (overrideCount ?: cur.questionCount).coerceIn(3, 15)
         val diff = overrideDifficulty ?: cur.difficulty
+        val sameDoc = cur.documentId == doc.id
 
         _uiState.update {
             it.copy(
-                quizState = cur.copy(
-                    documentId = doc.id,
-                    documentTitle = doc.title,
-                    questionCount = count,
-                    difficulty = diff,
-                    isLoading = true,
-                    error = null
-                )
+                quizState = if (sameDoc) {
+                    cur.copy(
+                        documentId = doc.id,
+                        documentTitle = doc.title,
+                        questionCount = count,
+                        difficulty = diff,
+                        isLoading = true,
+                        error = null
+                    )
+                } else {
+                    QuizSessionState(
+                        documentId = doc.id,
+                        documentTitle = doc.title,
+                        questionCount = count,
+                        difficulty = diff,
+                        isLoading = true
+                    )
+                }
             )
         }
         viewModelScope.launch {
             val res = aiEngine.generateComprehensionQuiz(_uiState.value.settings, doc, sections, count, diff)
             res.onSuccess { questions ->
                 _uiState.update { state ->
+                    if (state.quizState.documentId != doc.id) return@update state
                     state.copy(
                         quizState = state.quizState.copy(
                             documentId = doc.id,
@@ -1154,6 +1207,7 @@ class CatedraViewModel(application: Application) : AndroidViewModel(application)
                 }
             }.onFailure { err ->
                 _uiState.update { state ->
+                    if (state.quizState.documentId != doc.id) return@update state
                     state.copy(
                         quizState = state.quizState.copy(
                             documentId = doc.id,
@@ -1187,16 +1241,19 @@ class CatedraViewModel(application: Application) : AndroidViewModel(application)
         val sections = _uiState.value.activeSections
         val count = _uiState.value.quizState.questionCount.coerceIn(5, 12)
         _uiState.update { state ->
-            state.copy(quizState = state.quizState.copy(documentId = doc.id, documentTitle = doc.title, isLoadingFlashcards = true))
+            val base = if (state.quizState.documentId == doc.id) state.quizState else QuizSessionState(documentId = doc.id, documentTitle = doc.title)
+            state.copy(quizState = base.copy(documentId = doc.id, documentTitle = doc.title, isLoadingFlashcards = true))
         }
         viewModelScope.launch {
             val res = aiEngine.generateFlashcards(_uiState.value.settings, doc, sections, cardCount = count)
             res.onSuccess { cards ->
                 _uiState.update { state ->
+                    if (state.quizState.documentId != doc.id) return@update state
                     state.copy(quizState = state.quizState.copy(flashcards = cards, isLoadingFlashcards = false))
                 }
             }.onFailure { err ->
                 _uiState.update { state ->
+                    if (state.quizState.documentId != doc.id) return@update state
                     state.copy(
                         quizState = state.quizState.copy(isLoadingFlashcards = false),
                         snackbarMessage = err.message ?: "No se pudieron generar las tarjetas"
@@ -1219,16 +1276,19 @@ class CatedraViewModel(application: Application) : AndroidViewModel(application)
         val doc = _uiState.value.activeDocument ?: return
         val sections = _uiState.value.activeSections
         _uiState.update { state ->
-            state.copy(quizState = state.quizState.copy(documentId = doc.id, documentTitle = doc.title, isLoadingStudyGuide = true))
+            val base = if (state.quizState.documentId == doc.id) state.quizState else QuizSessionState(documentId = doc.id, documentTitle = doc.title)
+            state.copy(quizState = base.copy(documentId = doc.id, documentTitle = doc.title, isLoadingStudyGuide = true))
         }
         viewModelScope.launch {
             val res = aiEngine.generateStudyGuide(_uiState.value.settings, doc, sections)
             res.onSuccess { guide ->
                 _uiState.update { state ->
+                    if (state.quizState.documentId != doc.id) return@update state
                     state.copy(quizState = state.quizState.copy(studyGuideMarkdown = guide, isLoadingStudyGuide = false))
                 }
             }.onFailure { err ->
                 _uiState.update { state ->
+                    if (state.quizState.documentId != doc.id) return@update state
                     state.copy(
                         quizState = state.quizState.copy(isLoadingStudyGuide = false),
                         snackbarMessage = err.message ?: "No se pudo generar la Guía de Estudio"
@@ -1497,12 +1557,12 @@ class CatedraViewModel(application: Application) : AndroidViewModel(application)
                 saveSettings(settings.copy(driveAccessToken = fresh.accessToken, driveTokenExpiresAt = fresh.expiresAtMs))
             }
             val res = driveService.downloadOrExportFile(fresh.accessToken, item, knowledgeStore.importsDir)
-            res.onSuccess { (file, mime) ->
+            res.onSuccess { downloaded ->
                 importDocumentFromUri(
-                    uri = Uri.fromFile(file),
-                    forcedFileName = file.name.substringAfter('_'),
-                    forcedMime = mime,
-                    localCachedPath = file.absolutePath,
+                    uri = Uri.fromFile(downloaded.file),
+                    forcedFileName = downloaded.displayName,
+                    forcedMime = downloaded.mimeType,
+                    localCachedPath = downloaded.file.absolutePath,
                     driveFileId = item.id
                 )
             }.onFailure { err ->
