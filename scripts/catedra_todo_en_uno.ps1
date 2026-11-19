@@ -106,10 +106,13 @@ if ($NvidiaApiKey.Trim().Length -gt 0) {
 
     # Guardar clave SOLO en local.properties (está en .gitignore, nunca sube a GitHub)
     $localPropsPath = "$ProjectDir\local.properties"
-    $lines = if (Test-Path $localPropsPath) { Get-Content $localPropsPath } else { @("sdk.dir=E\:\\Android\\Sdk") }
-    $lines = $lines | Where-Object { $_ -notmatch "^catedra\.nvidia\.key=" }
-    $lines += "catedra.nvidia.key=$cleanNv"
-    Set-Content -Path $localPropsPath -Value $lines -Encoding UTF8
+    $rawLines = if (Test-Path $localPropsPath) { @(Get-Content $localPropsPath) } else { @("sdk.dir=E\:\\Android\\Sdk") }
+    $cleanLines = @("sdk.dir=E\:\\Android\\Sdk")
+    foreach ($ln in $rawLines) {
+        if ($ln -match "^catedra\.gemini\.key=") { $cleanLines += $ln }
+    }
+    $cleanLines += "catedra.nvidia.key=$cleanNv"
+    [System.IO.File]::WriteAllLines($localPropsPath, [string[]]$cleanLines, (New-Object System.Text.UTF8Encoding($false)))
     Write-Host "  OK -> Clave guardada solo localmente en local.properties (protegida por .gitignore)." -ForegroundColor Green
 } else {
     Write-Host "`n[2/6] Sin -NvidiaApiKey indicada (puedes ingresarla luego en Ajustes de la app o pasarla por parámetro)." -ForegroundColor DarkGray
@@ -118,10 +121,13 @@ if ($NvidiaApiKey.Trim().Length -gt 0) {
 if ($GeminiApiKey.Trim().Length -gt 0) {
     $cleanGm = $GeminiApiKey.Trim()
     $localPropsPath = "$ProjectDir\local.properties"
-    $lines = if (Test-Path $localPropsPath) { Get-Content $localPropsPath } else { @("sdk.dir=E\:\\Android\\Sdk") }
-    $lines = $lines | Where-Object { $_ -notmatch "^catedra\.gemini\.key=" }
-    $lines += "catedra.gemini.key=$cleanGm"
-    Set-Content -Path $localPropsPath -Value $lines -Encoding UTF8
+    $rawLines = if (Test-Path $localPropsPath) { @(Get-Content $localPropsPath) } else { @("sdk.dir=E\:\\Android\\Sdk") }
+    $cleanLines = @("sdk.dir=E\:\\Android\\Sdk")
+    foreach ($ln in $rawLines) {
+        if ($ln -match "^catedra\.nvidia\.key=") { $cleanLines += $ln }
+    }
+    $cleanLines += "catedra.gemini.key=$cleanGm"
+    [System.IO.File]::WriteAllLines($localPropsPath, [string[]]$cleanLines, (New-Object System.Text.UTF8Encoding($false)))
     Write-Host "  OK -> Gemini API Key guardada solo localmente en local.properties." -ForegroundColor Green
 }
 
