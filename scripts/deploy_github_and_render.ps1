@@ -72,17 +72,23 @@ if ($pending) {
 }
 
 $visibility = if ($PrivateRepo) { "--private" } else { "--public" }
-$repoExists = $true
-try { gh repo view "$ghUser/$RepoName" | Out-Null } catch { $repoExists = $false }
+$ErrorActionPreference = "Continue"
+gh repo view "$ghUser/$RepoName" 2>$null | Out-Null
+$repoExists = ($LASTEXITCODE -eq 0)
+$ErrorActionPreference = "Stop"
 
 if (-not $repoExists) {
+    $remotes = git remote
+    if ($remotes -contains "origin") { git remote remove origin }
     gh repo create "$ghUser/$RepoName" $visibility --source="." --remote="origin" --push --description "Catedra: lector universal y docente conversacional Android con NVIDIA NIM, Gemini, OpenAlex/arXiv y Google Drive"
+    if ($LASTEXITCODE -ne 0) { throw "Falló gh repo create." }
 } else {
     $remotes = git remote
     if ($remotes -notcontains "origin") {
         git remote add origin "https://github.com/$ghUser/$RepoName.git"
     }
     git push -u origin main
+    if ($LASTEXITCODE -ne 0) { throw "Falló git push." }
 }
 
 # 5. Crear o actualizar Release con el APK adjunto
@@ -93,30 +99,40 @@ $releaseNotes = @"
 - Lector universal (PDF visual/texto, Word, Excel/CSV, PowerPoint, EPUB, TXT e imágenes/cámara)
 - Docente conversacional con citas clickeables, diagnóstico de errores de comprensión y lectura en voz alta
 - Motor híbrido: **NVIDIA NIM (Nemotron + NeMo Rerank + VLM)** + **Google Gemini (1M tokens)** + **OpenAI/OpenRouter**
-- Notas ultraligeras `.md`/`.txt` + buscador de papers (OpenAlex / arXiv)
+- Notas ultraligeras `.md`/`.txt` + buscador de papers (OpenAlex / arXiv / Europe PMC / CrossRef)
 - Google Drive híbrido (Android SAF instantáneo + OAuth2 1-toque vía Render)
 
 **Tamaño APK:** $apkMb MB
 **SHA-256:** ``$sha256``
 "@
 
-$releaseExists = $true
-try { gh release view $VersionTag --repo "$ghUser/$RepoName" | Out-Null } catch { $releaseExists = $false }
+$ErrorActionPreference = "Continue"
+gh release view $VersionTag --repo "$ghUser/$RepoName" 2>$null | Out-Null
+$releaseExists = ($LASTEXITCODE -eq 0)
+$ErrorActionPreference = "Stop"
 
 if ($releaseExists) {
     gh release upload $VersionTag $ApkPath --repo "$ghUser/$RepoName" --clobber
 } else {
     gh release create $VersionTag $ApkPath --repo "$ghUser/$RepoName" --title "Cátedra $VersionTag" --notes $releaseNotes
 }
+if ($LASTEXITCODE -ne 0) { throw "Falló publicación de Release." }
 
 # 6. Activar GitHub Pages en /docs (solo disponible gratis en repos públicos)
 Write-Host "`n=== 5. Activando GitHub Pages (/docs) ===" -ForegroundColor Cyan
-try {
-    gh api -X POST "repos/$ghUser/$RepoName/pages" -f "source[branch]=main" -f "source[path]=/docs" | Out-Null
+$ErrorActionPreference = "Continue"
+gh api -X POST "repos/$ghUser/$RepoName/pages" -f "source[branch]=main" -f "source[path]=/docs" 2>$null | Out-Null
+if ($LASTEXITCODE -eq 0) {
     Write-Host "GitHub Pages activado en /docs." -ForegroundColor Green
-} catch {
-    Write-Host "Aviso GitHub Pages: ya estaba activo o el repo es privado. Puedes revisarlo en Settings -> Pages." -ForegroundColor Yellow
+} else {
+    gh api "repos/$ghUser/$RepoName/pages" --jq ".html_url" 2>$null | Out-Null
+    if ($LASTEXITCODE -eq 0) {
+        Write-Host "GitHub Pages ya estaba activo en /docs." -ForegroundColor Green
+    } else {
+        Write-Host "Aviso GitHub Pages: revisa Settings -> Pages en GitHub (requiere repo público en plan gratuito)." -ForegroundColor Yellow
+    }
 }
+$ErrorActionPreference = "Stop"
 
 $repoUrl = "https://github.com/$ghUser/$RepoName"
 $pagesUrl = "https://$ghUser.github.io/$RepoName/"
