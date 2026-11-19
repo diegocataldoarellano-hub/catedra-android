@@ -994,7 +994,10 @@ class DocenteAiEngine {
                         ?: j.optString("detail")
                         ?: body.take(220)
                 }.getOrDefault(body.take(220))
-                error("Error API (HTTP ${resp.code}): $errMsg")
+                val hint = if (resp.code == 401 || resp.code == 403) {
+                    " Revisa tu API Key en Menú → Ajustes."
+                } else ""
+                error("Error API (HTTP ${resp.code}): $errMsg$hint")
             }
             val json = JSONObject(body)
             val msgObj = json.getJSONArray("choices").getJSONObject(0).getJSONObject("message")

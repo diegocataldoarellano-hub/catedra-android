@@ -23,14 +23,22 @@ class SettingsStore(context: Context) {
         val themeName = prefs.getString("theme_mode", AppThemeMode.SYSTEM.name) ?: AppThemeMode.SYSTEM.name
         val theme = runCatching { AppThemeMode.valueOf(themeName) }.getOrDefault(AppThemeMode.SYSTEM)
 
-        val savedGemini = prefs.getString("gemini_key", "") ?: ""
-        val savedNvidia = prefs.getString("nvidia_key", "") ?: ""
+        val savedGemini = prefs.getString("gemini_key", "")?.trim() ?: ""
+        val rawSavedNvidia = prefs.getString("nvidia_key", "")?.trim() ?: ""
+        val isPlaceholderNvidia = rawSavedNvidia.isBlank() ||
+            rawSavedNvidia.contains("TU_CLAVE", ignoreCase = true) ||
+            rawSavedNvidia.contains("YOUR_", ignoreCase = true) ||
+            (rawSavedNvidia.length < 24 && BuildConfig.DEFAULT_NVIDIA_API_KEY.length >= 24)
+        val resolvedNvidia = if (isPlaceholderNvidia) BuildConfig.DEFAULT_NVIDIA_API_KEY else rawSavedNvidia
+        if (isPlaceholderNvidia && resolvedNvidia.isNotBlank() && rawSavedNvidia.isNotBlank()) {
+            prefs.edit().putString("nvidia_key", resolvedNvidia).apply()
+        }
 
         return AppSettings(
             provider = provider,
             geminiApiKey = savedGemini.ifBlank { BuildConfig.DEFAULT_GEMINI_API_KEY },
             geminiModel = prefs.getString("gemini_model", "gemini-2.5-flash") ?: "gemini-2.5-flash",
-            nvidiaApiKey = savedNvidia.ifBlank { BuildConfig.DEFAULT_NVIDIA_API_KEY },
+            nvidiaApiKey = resolvedNvidia,
             nvidiaModel = (prefs.getString("nvidia_model", "nvidia/nemotron-3.5-super-vl-120b-a12b")
                 ?: "nvidia/nemotron-3.5-super-vl-120b-a12b").let {
                 if (it == "nvidia/llama-3.3-nemotron-super-49b-v1.5") "nvidia/nemotron-3.5-super-vl-120b-a12b" else it
