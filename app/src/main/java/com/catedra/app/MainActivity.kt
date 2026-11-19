@@ -266,6 +266,7 @@ private fun CatedraRoot(viewModel: CatedraViewModel) {
                             onBack = { viewModel.navigateBack() },
                             onJumpToSection = viewModel::jumpReaderToSection,
                             onReadAloudFromHere = viewModel::startReadingActiveDocumentAloud,
+                            onTranslateSection = viewModel::translateCurrentReaderSection,
                             onAskTeacherPage = viewModel::askAboutCurrentReaderPage,
                             onAddPageNote = { cat, content, cite ->
                                 viewModel.addManualNote(cat, content, cite, isFromVoice = false)

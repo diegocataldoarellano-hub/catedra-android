@@ -71,6 +71,8 @@ data class CatedraUiState(
     val readerSectionIndex: Int = 0,
     val readerVisualBitmap: Bitmap? = null,
     val isLoadingVisualPage: Boolean = false,
+    val readerTranslatedText: String? = null,
+    val isTranslatingSection: Boolean = false,
     // Papers state
     val paperResults: List<PaperResult> = emptyList(),
     val isSearchingPapers: Boolean = false,
@@ -526,7 +528,14 @@ class CatedraViewModel(application: Application) : AndroidViewModel(application)
         val doc = _uiState.value.activeDocument ?: return
         val sections = _uiState.value.activeSections
         val safeIdx = zeroBasedIndex.coerceIn(0, (sections.size - 1).coerceAtLeast(0))
-        _uiState.update { it.copy(readerSectionIndex = safeIdx, isLoadingVisualPage = true) }
+        _uiState.update {
+            it.copy(
+                readerSectionIndex = safeIdx,
+                isLoadingVisualPage = true,
+                readerTranslatedText = null,
+                isTranslatingSection = false
+            )
+        }
 
         if (doc.docType == DocType.PDF || doc.docType == DocType.PAPER || doc.docType == DocType.IMAGE) {
             viewModelScope.launch {
@@ -546,7 +555,47 @@ class CatedraViewModel(application: Application) : AndroidViewModel(application)
         val doc = _uiState.value.activeDocument ?: return
         val sections = _uiState.value.activeSections
         if (sections.isEmpty()) return
-        voiceManager.startReadingDocument(doc.title, sections, fromSectionZeroBased)
+        val translated = _uiState.value.readerTranslatedText
+        if (!translated.isNullOrBlank() && fromSectionZeroBased == _uiState.value.readerSectionIndex) {
+            voiceManager.speakSingleMessage(translated)
+        } else {
+            voiceManager.startReadingDocument(doc.title, sections, fromSectionZeroBased)
+        }
+    }
+
+    fun translateCurrentReaderSection() {
+        val sections = _uiState.value.activeSections
+        val idx = _uiState.value.readerSectionIndex.coerceIn(0, (sections.size - 1).coerceAtLeast(0))
+        val sec = sections.getOrNull(idx) ?: return
+        if (_uiState.value.readerTranslatedText != null) {
+            _uiState.update { it.copy(readerTranslatedText = null) }
+            return
+        }
+        if (_uiState.value.isTranslatingSection) return
+        _uiState.update { it.copy(isTranslatingSection = true) }
+        viewModelScope.launch {
+            val res = aiEngine.translateAcademicText(_uiState.value.settings, sec.content)
+            res.onSuccess { translated ->
+                _uiState.update {
+                    it.copy(
+                        readerTranslatedText = translated,
+                        isTranslatingSection = false,
+                        snackbarMessage = if (_uiState.value.settings.nvidiaApiKey.isNotBlank()) {
+                            "Traducido al español con NVIDIA Riva Translate 4B"
+                        } else {
+                            "Traducido al español"
+                        }
+                    )
+                }
+            }.onFailure { err ->
+                _uiState.update {
+                    it.copy(
+                        isTranslatingSection = false,
+                        snackbarMessage = err.message ?: "No se pudo traducir la sección"
+                    )
+                }
+            }
+        }
     }
 
     fun askAboutCurrentReaderPage(visualAnalysis: Boolean) {

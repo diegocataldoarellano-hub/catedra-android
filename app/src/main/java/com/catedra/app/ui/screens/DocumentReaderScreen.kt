@@ -34,6 +34,7 @@ import androidx.compose.material.icons.rounded.Image
 import androidx.compose.material.icons.rounded.Mic
 import androidx.compose.material.icons.rounded.NoteAdd
 import androidx.compose.material.icons.rounded.TextFields
+import androidx.compose.material.icons.rounded.Translate
 import androidx.compose.material.icons.rounded.Visibility
 import androidx.compose.material.icons.rounded.VolumeUp
 import androidx.compose.material3.AlertDialog
@@ -80,6 +81,7 @@ fun DocumentReaderScreen(
     onBack: () -> Unit,
     onJumpToSection: (Int) -> Unit,
     onReadAloudFromHere: (Int) -> Unit,
+    onTranslateSection: () -> Unit,
     onAskTeacherPage: (Boolean) -> Unit,
     onAddPageNote: (NoteCategory, String, String) -> Unit,
     onDictateNote: ((String) -> Unit) -> Unit,
@@ -137,6 +139,23 @@ fun DocumentReaderScreen(
                         imageVector = if (showVisualMode) Icons.Rounded.TextFields else Icons.Rounded.Image,
                         contentDescription = "Alternar vista visual/texto",
                         tint = colors.accent
+                    )
+                }
+            }
+            IconButton(
+                onClick = {
+                    showVisualMode = false
+                    onTranslateSection()
+                },
+                enabled = !uiState.isTranslatingSection
+            ) {
+                if (uiState.isTranslatingSection) {
+                    CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp, color = colors.nvidiaGreen)
+                } else {
+                    Icon(
+                        imageVector = Icons.Rounded.Translate,
+                        contentDescription = "Traducir con NVIDIA Riva",
+                        tint = if (uiState.readerTranslatedText != null) colors.nvidiaGreen else colors.textSecondary
                     )
                 }
             }
@@ -235,8 +254,17 @@ fun DocumentReaderScreen(
                                 )
                             }
                             Spacer(Modifier.height(14.dp))
+                            if (!uiState.readerTranslatedText.isNullOrBlank()) {
+                                Text(
+                                    text = "Traducción al español (NVIDIA Riva Translate) · Toca el ícono Traducir arriba para volver al original",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = colors.nvidiaGreen,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                                Spacer(Modifier.height(8.dp))
+                            }
                             Text(
-                                text = currentSection.content,
+                                text = uiState.readerTranslatedText ?: currentSection.content,
                                 style = MaterialTheme.typography.bodyLarge.copy(lineHeight = 25.sp),
                                 color = colors.textPrimary
                             )

@@ -1,7 +1,17 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
 }
+
+val localProps = Properties().apply {
+    val f = rootProject.file("local.properties")
+    if (f.exists()) f.inputStream().use { load(it) }
+}
+val injectPersonalKeys = (project.findProperty("injectPersonalKeys")?.toString() == "true")
+val defaultNvidiaKey = if (injectPersonalKeys) (localProps.getProperty("catedra.nvidia.key") ?: "").trim() else ""
+val defaultGeminiKey = if (injectPersonalKeys) (localProps.getProperty("catedra.gemini.key") ?: "").trim() else ""
 
 android {
     namespace = "com.catedra.app"
@@ -13,6 +23,9 @@ android {
         targetSdk = 34
         versionCode = 1
         versionName = "1.0.0"
+
+        buildConfigField("String", "DEFAULT_NVIDIA_API_KEY", "\"${defaultNvidiaKey.replace("\"", "")}\"")
+        buildConfigField("String", "DEFAULT_GEMINI_API_KEY", "\"${defaultGeminiKey.replace("\"", "")}\"")
 
         vectorDrawables {
             useSupportLibrary = true

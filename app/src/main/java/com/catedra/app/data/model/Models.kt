@@ -149,11 +149,11 @@ data class AppSettings(
     val geminiApiKey: String = "",
     val geminiModel: String = "gemini-2.5-flash",
     val nvidiaApiKey: String = "",
-    val nvidiaModel: String = "nvidia/llama-3.3-nemotron-super-49b-v1.5",
+    val nvidiaModel: String = "nvidia/nemotron-3.5-super-vl-120b-a12b",
     val nvidiaVisionModel: String = "nvidia/nemotron-3.5-super-vl-120b-a12b",
-    val useNvidiaRerank: Boolean = true,            // NVIDIA NeMo Retriever Rerank for surgical citations!
-    val useNvidiaVisionSkill: Boolean = true,       // Use NVIDIA VLM for visual pages/charts/scans when nvapi key present
-    val showReasoningSummary: Boolean = false,      // Show collapsible reasoning from Nemotron/R1
+    val useNvidiaRerank: Boolean = true,            // Skill NVIDIA Nemotron-3-Embed-1B (2048-dim) para citas quirúrgicas
+    val useNvidiaVisionSkill: Boolean = true,       // Skill Visión NVIDIA VLM para gráficos, tablas y escaneos
+    val showReasoningSummary: Boolean = false,      // Razonamiento colapsable de Nemotron 3 / 3.5
     val openAiApiKey: String = "",
     val openAiModel: String = "gpt-4o-mini",
     val openAiBaseUrl: String = "https://api.openai.com/v1",

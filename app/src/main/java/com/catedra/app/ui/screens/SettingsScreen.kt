@@ -178,7 +178,7 @@ fun SettingsScreen(
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 Text(
-                    text = "Aprovecha build.nvidia.com para potenciar al Docente con Nemotron, razonamiento profundo, visión VLM y NVIDIA NeMo Retriever Rerank (incluso si usas Gemini como chat principal).",
+                    text = "Skills activas con tu clave NVIDIA NIM: Nemotron 3.5 Super VL 120B (Docente + Visión), Nemotron 3 Ultra 550B, Embeddings semánticos 2048d (nemotron-3-embed-1b) y Traductor académico en el Lector (Riva Translate 4B).",
                     style = MaterialTheme.typography.bodySmall,
                     color = colors.textSecondary
                 )
@@ -252,8 +252,8 @@ fun SettingsScreen(
                 )
 
                 ToggleRow(
-                    title = "Skill NVIDIA NeMo Retriever Rerank",
-                    subtitle = "Reordena semánticamente páginas de libros largos (llama-3.2-nv-rerankqa-1b-v2) para citas exactas",
+                    title = "Skill NVIDIA Embeddings Semánticos 2048d",
+                    subtitle = "Usa nvidia/nemotron-3-embed-1b para hallar los pasajes exactos en libros extensos y mejorar las citas",
                     checked = s.useNvidiaRerank,
                     accent = colors.nvidiaGreen,
                     onCheckedChange = { c -> update { it.copy(useNvidiaRerank = c) } }

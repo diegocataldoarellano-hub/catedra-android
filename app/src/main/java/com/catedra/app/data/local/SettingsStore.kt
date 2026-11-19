@@ -1,6 +1,7 @@
 package com.catedra.app.data.local
 
 import android.content.Context
+import com.catedra.app.BuildConfig
 import com.catedra.app.data.model.AiProvider
 import com.catedra.app.data.model.AppSettings
 import com.catedra.app.data.model.AppThemeMode
@@ -10,20 +11,30 @@ class SettingsStore(context: Context) {
     private val prefs = context.getSharedPreferences("catedra_settings_v1", Context.MODE_PRIVATE)
 
     fun load(): AppSettings {
-        val providerName = prefs.getString("provider", AiProvider.GEMINI.name) ?: AiProvider.GEMINI.name
-        val provider = runCatching { AiProvider.valueOf(providerName) }.getOrDefault(AiProvider.GEMINI)
+        val defaultProvider = if (BuildConfig.DEFAULT_NVIDIA_API_KEY.isNotBlank() && BuildConfig.DEFAULT_GEMINI_API_KEY.isBlank()) {
+            AiProvider.NVIDIA_NIM
+        } else {
+            AiProvider.GEMINI
+        }
+        val providerName = prefs.getString("provider", defaultProvider.name) ?: defaultProvider.name
+        val provider = runCatching { AiProvider.valueOf(providerName) }.getOrDefault(defaultProvider)
         val toneName = prefs.getString("teacher_tone", TeacherTone.SOCRATICO.name) ?: TeacherTone.SOCRATICO.name
         val tone = runCatching { TeacherTone.valueOf(toneName) }.getOrDefault(TeacherTone.SOCRATICO)
         val themeName = prefs.getString("theme_mode", AppThemeMode.SYSTEM.name) ?: AppThemeMode.SYSTEM.name
         val theme = runCatching { AppThemeMode.valueOf(themeName) }.getOrDefault(AppThemeMode.SYSTEM)
 
+        val savedGemini = prefs.getString("gemini_key", "") ?: ""
+        val savedNvidia = prefs.getString("nvidia_key", "") ?: ""
+
         return AppSettings(
             provider = provider,
-            geminiApiKey = prefs.getString("gemini_key", "") ?: "",
+            geminiApiKey = savedGemini.ifBlank { BuildConfig.DEFAULT_GEMINI_API_KEY },
             geminiModel = prefs.getString("gemini_model", "gemini-2.5-flash") ?: "gemini-2.5-flash",
-            nvidiaApiKey = prefs.getString("nvidia_key", "") ?: "",
-            nvidiaModel = prefs.getString("nvidia_model", "nvidia/llama-3.3-nemotron-super-49b-v1.5")
-                ?: "nvidia/llama-3.3-nemotron-super-49b-v1.5",
+            nvidiaApiKey = savedNvidia.ifBlank { BuildConfig.DEFAULT_NVIDIA_API_KEY },
+            nvidiaModel = (prefs.getString("nvidia_model", "nvidia/nemotron-3.5-super-vl-120b-a12b")
+                ?: "nvidia/nemotron-3.5-super-vl-120b-a12b").let {
+                if (it == "nvidia/llama-3.3-nemotron-super-49b-v1.5") "nvidia/nemotron-3.5-super-vl-120b-a12b" else it
+            },
             nvidiaVisionModel = prefs.getString("nvidia_vision_model", "nvidia/nemotron-3.5-super-vl-120b-a12b")
                 ?: "nvidia/nemotron-3.5-super-vl-120b-a12b",
             useNvidiaRerank = prefs.getBoolean("use_nvidia_rerank", true),

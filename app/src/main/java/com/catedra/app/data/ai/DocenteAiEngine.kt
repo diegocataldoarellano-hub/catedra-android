@@ -53,20 +53,22 @@ class DocenteAiEngine {
 
     companion object {
         const val NVIDIA_BASE_URL = "https://integrate.api.nvidia.com/v1"
-        const val NVIDIA_RERANK_URL = "https://ai.api.nvidia.com/v1/retrieval/nvidia/llama-3.2-nv-rerankqa-1b-v2/reranking"
-        const val NVIDIA_RERANK_MODEL = "nvidia/llama-3.2-nv-rerankqa-1b-v2"
+        const val NVIDIA_EMBED_MODEL = "nvidia/nemotron-3-embed-1b"
+        const val NVIDIA_TRANSLATE_MODEL = "nvidia/riva-translate-4b-instruct-v2"
 
         val CURATED_NVIDIA_CHAT_MODELS = listOf(
-            "nvidia/llama-3.3-nemotron-super-49b-v1.5",
-            "nvidia/llama-3.1-nemotron-70b-instruct",
             "nvidia/nemotron-3.5-super-vl-120b-a12b",
-            "meta/llama-3.3-70b-instruct",
-            "deepseek-ai/deepseek-r1"
+            "nvidia/nemotron-3-ultra-550b-a55b",
+            "google/gemma-4-31b-it",
+            "nvidia/nemotron-3.5-lightning-30b-a3b",
+            "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
+            "mistralai/mistral-large-4-1t-a52b",
+            "moonshotai/kimi-k3.1-pro"
         )
 
         val CURATED_NVIDIA_VISION_MODELS = listOf(
             "nvidia/nemotron-3.5-super-vl-120b-a12b",
-            "meta/llama-3.2-90b-vision-instruct"
+            "google/gemma-4-31b-it"
         )
 
         val CURATED_GEMINI_MODELS = listOf(
@@ -125,7 +127,7 @@ class DocenteAiEngine {
             when {
                 useNvidiaVision -> {
                     val primaryVlm = settings.nvidiaVisionModel.ifBlank { CURATED_NVIDIA_VISION_MODELS.first() }
-                    val fallbackVlm = "meta/llama-3.2-90b-vision-instruct"
+                    val fallbackVlm = "google/gemma-4-31b-it"
                     rawResponse = runCatching {
                         callOpenAiCompatible(
                             baseUrl = NVIDIA_BASE_URL,
@@ -154,7 +156,7 @@ class DocenteAiEngine {
 
                 activeProvider == AiProvider.NVIDIA_NIM -> {
                     val primaryModel = settings.nvidiaModel.ifBlank { CURATED_NVIDIA_CHAT_MODELS.first() }
-                    val fallbackModel = "meta/llama-3.3-70b-instruct"
+                    val fallbackModel = "nvidia/nemotron-3-ultra-550b-a55b"
                     rawResponse = runCatching {
                         callOpenAiCompatible(
                             baseUrl = NVIDIA_BASE_URL,
@@ -330,6 +332,41 @@ class DocenteAiEngine {
         }
     }
 
+    /**
+     * Skill NVIDIA Riva Translate (`nvidia/riva-translate-4b-instruct-v2`):
+     * Traduce pasajes o páginas de papers académicos en inglés u otros idiomas al español natural
+     * manteniendo rigor terminológico. Si no hay clave NVIDIA, usa el proveedor activo.
+     */
+    suspend fun translateAcademicText(
+        settings: AppSettings,
+        sourceText: String,
+        targetLanguage: String = "español académico claro y natural"
+    ): Result<String> = withContext(Dispatchers.IO) {
+        runCatching {
+            val clean = sourceText.trim().take(6000)
+            require(clean.isNotBlank()) { "No hay texto para traducir en esta sección." }
+            if (settings.nvidiaApiKey.isNotBlank()) {
+                val prompt = "Translate the following academic study text faithfully into natural Spanish, preserving technical terms and structure:\n\n$clean"
+                return@runCatching callOpenAiCompatible(
+                    baseUrl = NVIDIA_BASE_URL,
+                    apiKey = settings.nvidiaApiKey,
+                    model = NVIDIA_TRANSLATE_MODEL,
+                    systemPrompt = "",
+                    history = emptyList(),
+                    userPrompt = prompt,
+                    imageBase64 = null
+                ).first
+            }
+            val active = resolveEffectiveProvider(settings)
+            callSimpleCompletion(
+                active,
+                settings,
+                "Traduce fielmente el siguiente texto de estudio a $targetLanguage sin omitir detalles ni agregar comentarios externos.",
+                clean
+            )
+        }
+    }
+
     suspend fun testConnection(settings: AppSettings): Result<String> = withContext(Dispatchers.IO) {
         runCatching {
             val active = resolveEffectiveProvider(settings)
@@ -341,14 +378,14 @@ class DocenteAiEngine {
             )
             var extra = ""
             if (settings.nvidiaApiKey.isNotBlank() && settings.useNvidiaRerank) {
-                val rerankOk = runCatching {
+                val embedOk = runCatching {
                     rerankWithNvidiaNeMo(
                         apiKey = settings.nvidiaApiKey,
                         query = "comprensión lectora",
                         passages = listOf("La comprensión lectora profunda requiere análisis crítico.", "Receta de cocina.")
-                    ).isNotEmpty()
+                    ).firstOrNull() == 0
                 }.getOrDefault(false)
-                extra = if (rerankOk) " · NVIDIA NeMo Rerank OK" else " · NeMo Rerank fallback BM25"
+                extra = if (embedOk) " · NVIDIA Embed 2048d OK" else " · Embed fallback BM25"
             }
             "Conectado (${active.displayName}$extra): ${reply.take(80)}"
         }
@@ -485,8 +522,9 @@ class DocenteAiEngine {
     }
 
     /**
-     * NVIDIA NeMo Retriever Reranking API (`nvidia/llama-3.2-nv-rerankqa-1b-v2`):
-     * Reordena pasajes candidatos por relevancia semántica real respecto a la pregunta del estudiante.
+     * Skill NVIDIA Nemotron 3 Semantic Embeddings (`nvidia/nemotron-3-embed-1b`, 2048 dimensiones):
+     * Obtiene vectores semánticos para la pregunta (`input_type="query"`) y los pasajes candidatos
+     * (`input_type="passage"`) y los ordena por similitud coseno exacta para lograr citas quirúrgicas.
      */
     private fun rerankWithNvidiaNeMo(
         apiKey: String,
@@ -494,16 +532,32 @@ class DocenteAiEngine {
         passages: List<String>
     ): List<Int> {
         if (passages.isEmpty()) return emptyList()
+        val capped = passages.take(24)
+        val qVec = fetchNvidiaEmbeddings(apiKey, listOf(query.take(600)), "query").firstOrNull()
+            ?: return emptyList()
+        val pVecs = fetchNvidiaEmbeddings(apiKey, capped.map { it.take(1200) }, "passage")
+        if (pVecs.size != capped.size) return emptyList()
+
+        return pVecs.indices
+            .map { idx -> idx to cosineSimilarity(qVec, pVecs[idx]) }
+            .sortedByDescending { it.second }
+            .map { it.first }
+    }
+
+    private fun fetchNvidiaEmbeddings(
+        apiKey: String,
+        inputs: List<String>,
+        inputType: String
+    ): List<DoubleArray> {
         val payload = JSONObject().apply {
-            put("model", NVIDIA_RERANK_MODEL)
-            put("query", JSONObject().put("text", query.take(600)))
-            put("passages", JSONArray().apply {
-                for (p in passages) put(JSONObject().put("text", p))
-            })
+            put("model", NVIDIA_EMBED_MODEL)
+            put("input", JSONArray().apply { inputs.forEach { put(it) } })
+            put("input_type", inputType)
+            put("encoding_format", "float")
             put("truncate", "END")
         }
         val req = Request.Builder()
-            .url(NVIDIA_RERANK_URL)
+            .url("$NVIDIA_BASE_URL/embeddings")
             .header("Authorization", "Bearer ${apiKey.trim()}")
             .header("Accept", "application/json")
             .header("Content-Type", "application/json")
@@ -513,14 +567,32 @@ class DocenteAiEngine {
         client.newCall(req).execute().use { resp ->
             if (!resp.isSuccessful) return emptyList()
             val body = resp.body?.string().orEmpty()
-            val rankings = JSONObject(body).optJSONArray("rankings") ?: return emptyList()
-            val pairs = mutableListOf<Pair<Int, Double>>()
-            for (i in 0 until rankings.length()) {
-                val r = rankings.getJSONObject(i)
-                pairs.add(r.getInt("index") to r.optDouble("logit", 0.0))
+            val data = JSONObject(body).optJSONArray("data") ?: return emptyList()
+            val out = arrayOfNulls<DoubleArray>(data.length())
+            for (i in 0 until data.length()) {
+                val item = data.getJSONObject(i)
+                val idx = item.optInt("index", i).coerceIn(0, out.lastIndex)
+                val emb = item.getJSONArray("embedding")
+                val vec = DoubleArray(emb.length()) { k -> emb.getDouble(k) }
+                out[idx] = vec
             }
-            return pairs.sortedByDescending { it.second }.map { it.first }
+            return out.filterNotNull()
         }
+    }
+
+    internal fun cosineSimilarity(a: DoubleArray, b: DoubleArray): Double {
+        val len = min(a.size, b.size)
+        if (len == 0) return 0.0
+        var dot = 0.0
+        var na = 0.0
+        var nb = 0.0
+        for (i in 0 until len) {
+            dot += a[i] * b[i]
+            na += a[i] * a[i]
+            nb += b[i] * b[i]
+        }
+        val denom = kotlin.math.sqrt(na) * kotlin.math.sqrt(nb)
+        return if (denom > 0.0) dot / denom else 0.0
     }
 
     internal fun rankSectionsBm25(sections: List<DocSection>, query: String): List<Int> {
@@ -718,7 +790,9 @@ class DocenteAiEngine {
         imageBase64: String?
     ): Pair<String, String?> {
         val messages = JSONArray()
-        messages.put(JSONObject().put("role", "system").put("content", systemPrompt))
+        if (systemPrompt.isNotBlank()) {
+            messages.put(JSONObject().put("role", "system").put("content", systemPrompt))
+        }
 
         for (msg in history) {
             val role = if (msg.role == MessageRole.USER) "user" else "assistant"
@@ -744,7 +818,7 @@ class DocenteAiEngine {
             put("model", model)
             put("messages", messages)
             put("temperature", 0.45)
-            put("max_tokens", 2048)
+            put("max_tokens", 4096)
             put("stream", false)
         }
 
@@ -770,9 +844,11 @@ class DocenteAiEngine {
             }
             val json = JSONObject(body)
             val msgObj = json.getJSONArray("choices").getJSONObject(0).getJSONObject("message")
-            val content = msgObj.optString("content", "")
-            val reasoningField = msgObj.optString("reasoning_content", "").takeIf { it.isNotBlank() }
-            return splitThinkTags(content, reasoningField)
+            val content = if (msgObj.isNull("content")) "" else msgObj.optString("content", "")
+            val reasoningField = if (msgObj.isNull("reasoning_content")) null
+            else msgObj.optString("reasoning_content", "").takeIf { it.isNotBlank() && it != "null" }
+            val resolvedContent = content.ifBlank { reasoningField.orEmpty() }
+            return splitThinkTags(resolvedContent, reasoningField)
         }
     }
 
@@ -835,7 +911,7 @@ class DocenteAiEngine {
     }
 
     private fun buildBadge(base: String, usedRerank: Boolean): String {
-        return if (usedRerank) "$base + NeMo Rerank" else base
+        return if (usedRerank) "$base + Nemotron Embed" else base
     }
 
     internal fun extractCitationLabels(text: String, sections: List<DocSection>): List<String> {
