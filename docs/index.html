@@ -1,0 +1,230 @@
+﻿<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Cátedra — Docente Conversacional &amp; Lector Android</title>
+  <style>
+    :root {
+      --bg: #ffffff;
+      --surface: #f4f7fa;
+      --border: #e5eaef;
+      --text: #14181f;
+      --muted: #5a6775;
+      --accent: #2aabee;
+      --accent-soft: #e7f5fd;
+      --nvidia: #5fa300;
+      --ok: #2e9e5b;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #0e1621;
+        --surface: #17212b;
+        --border: #22303e;
+        --text: #f3f6f9;
+        --muted: #93a6b8;
+        --accent: #5eb5f7;
+        --accent-soft: #1d3448;
+        --nvidia: #76b900;
+        --ok: #4cc37a;
+      }
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Inter, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.55;
+    }
+    .wrap {
+      max-width: 720px;
+      margin: 0 auto;
+      padding: 40px 20px 64px;
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      margin-bottom: 18px;
+    }
+    .logo {
+      width: 54px;
+      height: 54px;
+      border-radius: 50%;
+      background: var(--accent);
+      display: grid;
+      place-items: center;
+      color: #fff;
+      font-weight: 700;
+      font-size: 24px;
+      flex-shrink: 0;
+    }
+    h1 { margin: 0; font-size: 28px; letter-spacing: -0.4px; }
+    .subtitle { margin: 4px 0 0; color: var(--muted); font-size: 15px; }
+    .cta-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin: 24px 0 28px;
+    }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 12px 20px;
+      border-radius: 22px;
+      font-weight: 600;
+      font-size: 14.5px;
+      text-decoration: none;
+      border: 1px solid transparent;
+      transition: opacity 0.15s ease;
+    }
+    .btn:hover { opacity: 0.9; }
+    .btn-primary { background: var(--accent); color: #fff; }
+    .btn-secondary { background: var(--surface); color: var(--text); border-color: var(--border); }
+    .pill-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 24px;
+    }
+    .pill {
+      font-size: 12px;
+      font-weight: 600;
+      padding: 4px 10px;
+      border-radius: 14px;
+      background: var(--accent-soft);
+      color: var(--accent);
+    }
+    .pill.nv {
+      background: rgba(118, 185, 0, 0.14);
+      color: var(--nvidia);
+    }
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 18px 20px;
+      margin-bottom: 14px;
+    }
+    .card h2 {
+      margin: 0 0 8px;
+      font-size: 16px;
+      letter-spacing: -0.2px;
+    }
+    .card p, .card li {
+      color: var(--muted);
+      font-size: 14px;
+      margin: 6px 0;
+    }
+    ul, ol { padding-left: 18px; margin: 6px 0 0; }
+    code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 12.5px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      padding: 2px 6px;
+      border-radius: 6px;
+      color: var(--text);
+    }
+    .status {
+      display: none;
+      font-size: 12.5px;
+      font-weight: 600;
+      margin-top: 12px;
+      padding: 8px 12px;
+      border-radius: 10px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+    }
+    .status.ok { color: var(--ok); }
+    footer {
+      margin-top: 36px;
+      font-size: 12.5px;
+      color: var(--muted);
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <main class="wrap">
+    <header class="brand">
+      <div class="logo">C</div>
+      <div>
+        <h1>Cátedra</h1>
+        <p class="subtitle">Lector universal, docente conversacional y notas ultraligeras para Android.</p>
+      </div>
+    </header>
+
+    <div class="pill-row">
+      <span class="pill">PDF · DOCX · XLSX · PPTX · EPUB · Fotos</span>
+      <span class="pill nv">NVIDIA NIM + NeMo Rerank + VLM</span>
+      <span class="pill">Gemini 1M Tokens</span>
+      <span class="pill">Notas .md / .txt (~3 KB)</span>
+      <span class="pill">OpenAlex + arXiv</span>
+    </div>
+
+    <div class="cta-row">
+      <a class="btn btn-primary" id="apkBtn" href="https://github.com/diegocataldoarellano-hub/catedra-android/releases/latest/download/Catedra-v1.0.0.apk">
+        Descargar APK (Android 8+)
+      </a>
+      <a class="btn btn-secondary" href="https://github.com/diegocataldoarellano-hub/catedra-android">
+        Ver código en GitHub
+      </a>
+    </div>
+
+    <div id="bridgeStatus" class="status"></div>
+
+    <section class="card">
+      <h2>1. Qué puedes estudiar en Cátedra</h2>
+      <ul>
+        <li><strong>Todo tipo de documento:</strong> PDF (lector visual con zoom y extracción página por página), Word, Excel/CSV, PowerPoint con notas del expositor, EPUB, TXT/Markdown y fotos de apuntes o pizarras.</li>
+        <li><strong>Diálogo como con un docente:</strong> resúmenes citados, preguntas progresivas, diagnóstico de errores de comprensión y citas clickeables (<code>[Pág. X]</code>) que saltan al punto exacto del documento.</li>
+        <li><strong>Voz fluida y sin gastar espacio:</strong> lectura completa en voz alta con mini-reproductor tipo Telegram, modo diálogo oral manos libres y notas de voz transcritas al instante a texto plano <code>.md / .txt</code>.</li>
+        <li><strong>Papers científicos:</strong> búsqueda integrada en OpenAlex y arXiv para descargar PDFs abiertos o compararlos dentro de tu conversación actual.</li>
+      </ul>
+    </section>
+
+    <section class="card">
+      <h2>2. Configuración rápida en el celular</h2>
+      <ol>
+        <li>Instala <code>Catedra-v1.0.0.apk</code> en tu teléfono Android.</li>
+        <li>Abre <strong>Menú → Ajustes</strong> y pega tu clave <strong>NVIDIA NIM (<code>nvapi-...</code>)</strong> de <code>build.nvidia.com</code> y/o tu clave gratuita de <strong>Google Gemini</strong> (AI Studio).</li>
+        <li>Activa <strong>Skill NVIDIA NeMo Retriever Rerank</strong> y <strong>Visión VLM</strong> para máxima precisión en libros extensos, gráficos y tablas.</li>
+      </ol>
+    </section>
+
+    <section class="card">
+      <h2>3. Conexión con Google Drive</h2>
+      <p><strong>Sin configurar nada:</strong> desde el botón <strong>+</strong> o <strong>Google Drive</strong> puedes abrir archivos directo desde tu Drive y tu celular usando el gestor nativo de Android.</p>
+      <p><strong>Conexión directa 1 toque (OAuth2 en Render):</strong> si despliegas este mismo repositorio en Render con <code>GOOGLE_CLIENT_ID</code> y <code>GOOGLE_CLIENT_SECRET</code>, pega la URL de tu servidor Render en <strong>Ajustes → Google Drive</strong> para explorar Drive dentro de Cátedra y respaldar tus notas <code>.md</code> en <code>Catedra_Notas</code> automáticamente.</p>
+    </section>
+
+    <footer>
+      Cátedra · Diseño minimalista inspirado en Telegram · Almacenamiento compacto en texto plano
+    </footer>
+  </main>
+
+  <script>
+    (async () => {
+      try {
+        const res = await fetch('/health', { cache: 'no-store' });
+        if (!res.ok) return;
+        const data = await res.json();
+        const el = document.getElementById('bridgeStatus');
+        el.style.display = 'block';
+        if (data.oauthConfigured) {
+          el.classList.add('ok');
+          el.textContent = 'Puente Render Google Drive OAuth2: ACTIVO · Copia esta URL en Ajustes → Google Drive dentro de Cátedra.';
+        } else {
+          el.textContent = 'Puente Render activo, pero faltan variables GOOGLE_CLIENT_ID y GOOGLE_CLIENT_SECRET en Render.';
+        }
+      } catch (_) {
+        // Sirviendo como página estática en GitHub Pages
+      }
+    })();
+  </script>
+</body>
+</html>
+

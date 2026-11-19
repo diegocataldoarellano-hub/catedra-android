@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <files-path name="notas" path="notas/" />
+    <files-path name="papers" path="papers/" />
+    <files-path name="imports" path="imports/" />
+    <cache-path name="camera" path="camera/" />
+    <cache-path name="exports" path="exports/" />
+</paths>

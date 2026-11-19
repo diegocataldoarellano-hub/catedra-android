@@ -1,0 +1,248 @@
+package com.catedra.app
+
+import com.catedra.app.data.ai.DocenteAiEngine
+import com.catedra.app.data.local.formatCompactSize
+import com.catedra.app.data.model.DocSection
+import com.catedra.app.data.model.DocType
+import com.catedra.app.data.model.NoteCategory
+import com.catedra.app.data.parser.UniversalDocumentParser
+import com.catedra.app.data.remote.AcademicPaperService
+import kotlinx.coroutines.runBlocking
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
+import org.junit.Test
+import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
+import java.util.zip.ZipEntry
+import java.util.zip.ZipOutputStream
+
+class CatedraCoreTests {
+
+    private fun buildZip(entries: Map<String, String>): ByteArray {
+        val baos = ByteArrayOutputStream()
+        ZipOutputStream(baos).use { zos ->
+            for ((name, content) in entries) {
+                zos.putNextEntry(ZipEntry(name))
+                zos.write(content.toByteArray(Charsets.UTF_8))
+                zos.closeEntry()
+            }
+        }
+        return baos.toByteArray()
+    }
+
+    @Test
+    fun testDocxParserExtractsHeadingsTablesAndIgnoresFieldCodes() {
+        val docXml = """
+            <?xml version="1.0" encoding="UTF-8"?>
+            <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+              <w:body>
+                <w:p>
+                  <w:pPr><w:pStyle w:val="Heading1"/></w:pPr>
+                  <w:r><w:t>Introducción a la Epistemología</w:t></w:r>
+                </w:p>
+                <w:p>
+                  <w:r><w:instrText>HYPERLINK "http://ignore.me"</w:instrText></w:r>
+                  <w:r><w:t>Karl Popper propuso la falsabilidad como criterio de demarcación.</w:t></w:r>
+                  <w:del><w:r><w:delText>TEXTO BORRADO QUE NO DEBE SALIR</w:delText></w:r></w:del>
+                </w:p>
+                <w:tbl>
+                  <w:tr>
+                    <w:tc><w:p><w:r><w:t>Autor</w:t></w:r></w:p></w:tc>
+                    <w:tc><w:p><w:r><w:t>Concepto</w:t></w:r></w:p></w:tc>
+                  </w:tr>
+                  <w:tr>
+                    <w:tc><w:p><w:r><w:t>Kuhn</w:t></w:r></w:p></w:tc>
+                    <w:tc><w:p><w:r><w:t>Paradigma</w:t></w:r></w:p></w:tc>
+                  </w:tr>
+                </w:tbl>
+              </w:body>
+            </w:document>
+        """.trimIndent()
+
+        val zipBytes = buildZip(mapOf("word/document.xml" to docXml))
+        val sections = UniversalDocumentParser.parseDocx(ByteArrayInputStream(zipBytes))
+        assertTrue(sections.isNotEmpty())
+        val content = sections.joinToString("\n") { it.content }
+        assertTrue(content.contains("Introducción a la Epistemología"))
+        assertTrue(content.contains("Karl Popper propuso la falsabilidad"))
+        assertTrue(content.contains("| Kuhn | Paradigma |"))
+        assertFalse("Debe ignorar instrText", content.contains("HYPERLINK"))
+        assertFalse("Debe ignorar delText", content.contains("TEXTO BORRADO"))
+    }
+
+    @Test
+    fun testXlsxParserExtractsSheetNamesSharedStringsAndNumbers() {
+        val workbookXml = """
+            <?xml version="1.0" encoding="UTF-8"?>
+            <workbook xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+              <sheets>
+                <sheet name="Presupuesto2026" sheetId="1" r:id="rId1"/>
+              </sheets>
+            </workbook>
+        """.trimIndent()
+        val relsXml = """
+            <?xml version="1.0" encoding="UTF-8"?>
+            <Relationships>
+              <Relationship Id="rId1" Target="worksheets/sheet1.xml"/>
+            </Relationships>
+        """.trimIndent()
+        val sharedStringsXml = """
+            <?xml version="1.0" encoding="UTF-8"?>
+            <sst>
+              <si><t>Partida</t></si>
+              <si><t>Monto</t></si>
+              <si><t>Investigación</t></si>
+            </sst>
+        """.trimIndent()
+        val sheet1Xml = """
+            <?xml version="1.0" encoding="UTF-8"?>
+            <worksheet>
+              <sheetData>
+                <row r="1">
+                  <c r="A1" t="s"><v>0</v></c>
+                  <c r="B1" t="s"><v>1</v></c>
+                </row>
+                <row r="2">
+                  <c r="A2" t="s"><v>2</v></c>
+                  <c r="B2"><v>45000</v></c>
+                </row>
+              </sheetData>
+            </worksheet>
+        """.trimIndent()
+
+        val zipBytes = buildZip(
+            mapOf(
+                "xl/workbook.xml" to workbookXml,
+                "xl/_rels/workbook.xml.rels" to relsXml,
+                "xl/sharedStrings.xml" to sharedStringsXml,
+                "xl/worksheets/sheet1.xml" to sheet1Xml
+            )
+        )
+        val sections = UniversalDocumentParser.parseXlsx(ByteArrayInputStream(zipBytes))
+        assertEquals(1, sections.size)
+        assertEquals("Hoja: Presupuesto2026", sections[0].label)
+        assertTrue(sections[0].content.contains("A2=Investigación"))
+        assertTrue(sections[0].content.contains("B2=45000"))
+    }
+
+    @Test
+    fun testPptxParserPreservesSentencesAndSpeakerNotes() {
+        val slide1 = """
+            <p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">
+              <p:cSld><p:spTree><p:sp><p:txBody>
+                <a:p><a:r><a:t>Neuroplasticidad </a:t></a:r><a:r><a:t>sináptica</a:t></a:r></a:p>
+                <a:p><a:r><a:t>Potenciación a largo plazo.</a:t></a:r></a:p>
+              </p:txBody></p:sp></p:spTree></p:cSld>
+            </p:sld>
+        """.trimIndent()
+        val notes1 = """
+            <p:notes xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">
+              <a:p><a:r><a:t>Recordar citar el experimento de Bliss y Lomo.</a:t></a:r></a:p>
+            </p:notes>
+        """.trimIndent()
+
+        val zipBytes = buildZip(
+            mapOf(
+                "ppt/slides/slide1.xml" to slide1,
+                "ppt/notesSlides/notesSlide1.xml" to notes1
+            )
+        )
+        val sections = UniversalDocumentParser.parsePptx(ByteArrayInputStream(zipBytes))
+        assertEquals(1, sections.size)
+        assertEquals("Diap. 1", sections[0].label)
+        assertTrue(sections[0].content.contains("Neuroplasticidad sináptica"))
+        assertTrue(sections[0].content.contains("Bliss y Lomo"))
+    }
+
+    @Test
+    fun testEpubParserFollowsOpfSpineOrder() {
+        val opf = """
+            <package>
+              <manifest>
+                <item id="c1" href="ch_intro.xhtml"/>
+                <item id="c2" href="ch_final.xhtml"/>
+              </manifest>
+              <spine>
+                <itemref idref="c1"/>
+                <itemref idref="c2"/>
+              </spine>
+            </package>
+        """.trimIndent()
+        val ch1 = "<html><body><h1>Primero</h1><p>Este es el primer capítulo de prueba con suficiente longitud para ser indexado.</p></body></html>"
+        val ch2 = "<html><body><h1>Segundo</h1><p>Este es el segundo capítulo de conclusiones con suficiente longitud para ser indexado.</p></body></html>"
+        val zipBytes = buildZip(
+            mapOf(
+                "OEBPS/content.opf" to opf,
+                "OEBPS/ch_final.xhtml" to ch2,
+                "OEBPS/ch_intro.xhtml" to ch1
+            )
+        )
+        val sections = UniversalDocumentParser.parseEpub(ByteArrayInputStream(zipBytes))
+        assertEquals(2, sections.size)
+        assertTrue(sections[0].content.contains("Primero"))
+        assertTrue(sections[1].content.contains("Segundo"))
+    }
+
+    @Test
+    fun testCsvAndRtfAndDocTypeDetection() {
+        val csv = "Nombre;Nota;Observacion\nAna;6.8;Excelente analisis\nLuis;5.9;Revisar citas"
+        val csvSections = UniversalDocumentParser.parseCsvOrTsv(ByteArrayInputStream(csv.toByteArray()), false)
+        assertEquals(1, csvSections.size)
+        assertTrue(csvSections[0].content.contains("Ana | 6.8 | Excelente analisis"))
+
+        val rtf = """{\rtf1\ansi\deff0 Hola mundo\par Segundo p\'e1rrafo de estudio.}"""
+        val rtfSections = UniversalDocumentParser.parseRtf(ByteArrayInputStream(rtf.toByteArray()))
+        assertTrue(rtfSections.first().content.contains("Segundo párrafo de estudio"))
+
+        assertEquals(DocType.PDF, DocType.fromFileNameAndMime("paper.pdf", "application/pdf"))
+        assertEquals(DocType.XLSX, DocType.fromFileNameAndMime("datos.xlsx", null))
+        assertEquals(DocType.IMAGE, DocType.fromFileNameAndMime("pizarra.jpg", "image/jpeg"))
+        assertEquals("3.5 KB", formatCompactSize(3584L))
+    }
+
+    @Test
+    fun testDocenteBm25CitationsThinkTagsAndNoteDistillation() {
+        val engine = DocenteAiEngine()
+        val sections = listOf(
+            DocSection(1, "Pág. 1", "Introducción", "Historia general de la estadística clásica y muestreo."),
+            DocSection(2, "Pág. 2", "Teorema de Bayes", "La probabilidad posterior combina el prior con la verosimilitud observada."),
+            DocSection(3, "Pág. 3", "Conclusiones", "Resumen final y referencias bibliográficas.")
+        )
+
+        val ranked = engine.rankSectionsBm25(sections, "como funciona la probabilidad posterior y verosimilitud de Bayes")
+        assertEquals(1, ranked.first()) // índice 1 = Pág. 2
+
+        val replyWithThink = "<think>El estudiante confunde correlación con causalidad.</think>Muy buena observación, pero mira [Pág. 2] y [Pág. 3]."
+        val (clean, reasoning) = engine.splitThinkTags(replyWithThink, null)
+        assertEquals("Muy buena observación, pero mira [Pág. 2] y [Pág. 3].", clean)
+        assertTrue(reasoning!!.contains("correlación"))
+
+        val cites = engine.extractCitationLabels(clean, sections)
+        assertEquals(listOf("Pág. 2", "Pág. 3"), cites)
+
+        val distilledJson = """
+            ```json
+            [
+              {"category":"COMPRENDIDO","citation":"Pág. 2","content":"El teorema de Bayes actualiza creencias previas con nueva evidencia."},
+              {"category":"ERROR_CORREGIDO","citation":"Pág. 2","content":"Antes confundía prior con verosimilitud; son factores distintos."}
+            ]
+            ```
+        """.trimIndent()
+        val drafts = engine.parseDistilledJson(distilledJson)
+        assertEquals(2, drafts.size)
+        assertEquals(NoteCategory.COMPRENDIDO, drafts[0].category)
+        assertEquals(NoteCategory.ERROR_CORREGIDO, drafts[1].category)
+    }
+
+    @Test
+    fun testAcademicPaperServiceLiveSmoke() = runBlocking {
+        val service = AcademicPaperService()
+        val res = service.searchPapers("spaced repetition memory learning", onlyOpenAccess = true, sourceFilter = "ALL")
+        assertTrue("La consulta académica debe responder sin excepción: ${res.exceptionOrNull()}", res.isSuccess)
+        val papers = res.getOrDefault(emptyList())
+        assertTrue("Debe retornar resultados con PDF abierto (arXiv / Europe PMC / OpenAlex)", papers.isNotEmpty())
+        assertTrue(papers.first().title.isNotBlank())
+        assertTrue(!papers.first().openAccessPdfUrl.isNullOrBlank())
+    }
+}

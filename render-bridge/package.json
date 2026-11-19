@@ -1,0 +1,12 @@
+{
+  "name": "catedra-render-bridge",
+  "version": "1.0.0",
+  "description": "Portal minimalista y puente OAuth2 de Google Drive para la APK Cátedra (cero dependencias externas)",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

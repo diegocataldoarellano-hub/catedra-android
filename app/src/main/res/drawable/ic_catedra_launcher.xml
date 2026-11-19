@@ -1,0 +1,35 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Minimalist Telegram-inspired calm blue circular emblem -->
+    <path
+        android:fillColor="#2AABEE"
+        android:pathData="M54,4A50,50 0 1,1 53.99,4Z" />
+    <!-- Subtle inner open book + dialogue spark -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M30,37 C30,34.8 31.8,33 34,33 L49,33 C51.5,33 53.5,34.5 54,36.5 C54.5,34.5 56.5,33 59,33 L74,33 C76.2,33 78,34.8 78,37 L78,67 C78,69.2 76.2,71 74,71 L58.5,71 C56.2,71 54.6,72.2 54,74 C53.4,72.2 51.8,71 49.5,71 L34,71 C31.8,71 30,69.2 30,67 Z" />
+    <path
+        android:fillColor="#2AABEE"
+        android:pathData="M52.5,38 L55.5,38 L55.5,69 L52.5,69 Z" />
+    <path
+        android:fillColor="#2AABEE"
+        android:pathData="M36,44 L48,44 L48,47 L36,47 Z" />
+    <path
+        android:fillColor="#2AABEE"
+        android:pathData="M36,52 L48,52 L48,55 L36,55 Z" />
+    <path
+        android:fillColor="#2AABEE"
+        android:pathData="M36,60 L45,60 L45,63 L36,63 Z" />
+    <path
+        android:fillColor="#2AABEE"
+        android:pathData="M60,44 L72,44 L72,47 L60,47 Z" />
+    <path
+        android:fillColor="#2AABEE"
+        android:pathData="M60,52 L72,52 L72,55 L60,55 Z" />
+    <path
+        android:fillColor="#2AABEE"
+        android:pathData="M60,60 L68,60 L68,63 L60,63 Z" />
+</vector>
