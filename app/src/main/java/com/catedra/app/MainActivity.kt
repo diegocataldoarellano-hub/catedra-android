@@ -334,8 +334,8 @@ private fun CatedraRoot(viewModel: CatedraViewModel) {
                             onFindRelatedPapers = viewModel::openRelatedPapersForActiveDocument,
                             onShareNotesTxt = { shareNotes(asTxt = true) },
                             onToggleTtsPlayPause = viewModel.voiceManager::togglePlayPauseDocument,
-                            onPrevTtsSection = { viewModel.voiceManager.skipSection(-1) },
-                            onNextTtsSection = { viewModel.voiceManager.skipSection(1) },
+                            onPrevTtsSection = { viewModel.skipTtsAndReaderSection(-1) },
+                            onNextTtsSection = { viewModel.skipTtsAndReaderSection(1) },
                             onCycleTtsSpeed = ::cycleSpeechRate,
                             onStopTts = viewModel.voiceManager::stopSpeaking
                         )
@@ -359,8 +359,8 @@ private fun CatedraRoot(viewModel: CatedraViewModel) {
                                 }
                             },
                             onToggleTtsPlayPause = viewModel.voiceManager::togglePlayPauseDocument,
-                            onPrevTtsSection = { viewModel.voiceManager.skipSection(-1) },
-                            onNextTtsSection = { viewModel.voiceManager.skipSection(1) },
+                            onPrevTtsSection = { viewModel.skipTtsAndReaderSection(-1) },
+                            onNextTtsSection = { viewModel.skipTtsAndReaderSection(1) },
                             onCycleTtsSpeed = ::cycleSpeechRate,
                             onStopTts = viewModel.voiceManager::stopSpeaking
                         )
@@ -422,10 +422,19 @@ private fun CatedraRoot(viewModel: CatedraViewModel) {
                         QuizScreen(
                             quizState = uiState.quizState,
                             onBack = { viewModel.navigateBack() },
-                            onRegenerateQuiz = viewModel::generateQuizForActiveDocument,
+                            onUpdateConfigAndGenerate = { count, diff ->
+                                viewModel.generateQuizForActiveDocument(count, diff)
+                            },
                             onSelectOption = viewModel::selectQuizOption,
+                            onToggleHint = viewModel::toggleQuizHint,
+                            onAskDocenteAboutQuestion = viewModel::askDocenteAboutQuizQuestion,
                             onCitationClick = viewModel::openReaderAtCitation,
                             onSaveMistakesToNotes = viewModel::saveQuizMistakesToNotes,
+                            onGenerateFlashcards = viewModel::generateFlashcardsForActiveDocument,
+                            onSaveFlashcardMastered = viewModel::saveFlashcardMasteredToNotes,
+                            onGenerateStudyGuide = viewModel::generateStudyGuideForActiveDocument,
+                            onSpeakStudyGuide = { txt -> viewModel.voiceManager.speakSingleMessage(txt) },
+                            onSaveStudyGuideToNotes = viewModel::saveStudyGuideToNotes,
                             onBuildFormsAppsScript = viewModel::buildGoogleFormsAppsScript,
                             onOpenUrlInBrowser = { url -> openInCustomTab(context, url) },
                             onShowMessage = viewModel::showMessage

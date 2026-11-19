@@ -278,7 +278,9 @@ class CatedraCoreTests {
             ```json
             [
               {
+                "difficulty": "Fácil",
                 "question": "¿Qué distingue la falsabilidad de Popper?",
+                "hint": "Piensa en qué hace que una hipótesis pueda ponerse a prueba para descartarse.",
                 "options": ["Confirmación inductiva", "Posibilidad de refutación empírica", "Consenso social", "Autoridad académica"],
                 "correctIndex": 1,
                 "citation": "Pág. 4",
@@ -292,6 +294,16 @@ class CatedraCoreTests {
         assertEquals(1, questions.size)
         assertEquals(1, questions[0].correctIndex)
         assertEquals("Pág. 4", questions[0].citationRef)
+        assertEquals("Fácil", questions[0].difficultyLabel)
+        assertTrue(questions[0].hint.contains("hipótesis"))
+
+        val rawCards = """
+            [{"difficulty":"Difícil","front":"¿Qué es un paradigma según Kuhn?","hint":"Relaciónalo con la ciencia normal","back":"Marco compartido de supuestos y métodos de una comunidad científica.","citation":"Pág. 12"}]
+        """.trimIndent()
+        val cards = engine.parseFlashcardsJson(rawCards)
+        assertEquals(1, cards.size)
+        assertEquals("Difícil", cards[0].difficultyLabel)
+        assertEquals("Pág. 12", cards[0].citationRef)
 
         val script = engine.buildGoogleFormsAppsScript("Epistemología", questions)
         assertTrue(script.contains("FormApp.create"))

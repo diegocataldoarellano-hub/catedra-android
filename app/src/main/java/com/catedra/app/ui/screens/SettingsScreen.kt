@@ -178,7 +178,7 @@ fun SettingsScreen(
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 Text(
-                    text = "Skills activas con tu clave NVIDIA NIM: Nemotron 3.5 Super VL 120B (Docente + Visión), Nemotron 3 Ultra 550B, Embeddings semánticos 2048d (nemotron-3-embed-1b) y Traductor académico en el Lector (Riva Translate 4B).",
+                    text = "Skills activas con tu clave NVIDIA NIM: Nemotron 3.5 Super VL 120B (Docente + Visión), Nemotron 3 Ultra 550B, Bolt E4B (micro-tareas instantáneas), Embeddings 4096d (nemotron-3.5-embed-8b) y Traductor académico (Riva Translate 4B).",
                     style = MaterialTheme.typography.bodySmall,
                     color = colors.textSecondary
                 )
@@ -252,8 +252,8 @@ fun SettingsScreen(
                 )
 
                 ToggleRow(
-                    title = "Skill NVIDIA Embeddings Semánticos 2048d",
-                    subtitle = "Usa nvidia/nemotron-3-embed-1b para hallar los pasajes exactos en libros extensos y mejorar las citas",
+                    title = "Skill NVIDIA Embeddings Semánticos 4096d",
+                    subtitle = "Usa nvidia/nemotron-3.5-embed-8b (respaldo 1b) para hallar los pasajes exactos en libros extensos y mejorar las citas",
                     checked = s.useNvidiaRerank,
                     accent = colors.nvidiaGreen,
                     onCheckedChange = { c -> update { it.copy(useNvidiaRerank = c) } }

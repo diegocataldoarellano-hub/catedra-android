@@ -4,8 +4,10 @@ import com.catedra.app.data.model.AiProvider
 import com.catedra.app.data.model.AppSettings
 import com.catedra.app.data.model.ChatMessage
 import com.catedra.app.data.model.DocSection
+import com.catedra.app.data.model.FlashcardItem
 import com.catedra.app.data.model.MessageRole
 import com.catedra.app.data.model.NoteCategory
+import com.catedra.app.data.model.QuizDifficulty
 import com.catedra.app.data.model.QuizQuestion
 import com.catedra.app.data.model.StudyDocument
 import com.catedra.app.data.model.StudyNote
@@ -54,16 +56,18 @@ class DocenteAiEngine {
 
     companion object {
         const val NVIDIA_BASE_URL = "https://integrate.api.nvidia.com/v1"
-        const val NVIDIA_EMBED_MODEL = "nvidia/nemotron-3-embed-1b"
+        const val NVIDIA_EMBED_MODEL = "nvidia/nemotron-3.5-embed-8b"
+        const val NVIDIA_EMBED_FALLBACK_MODEL = "nvidia/nemotron-3-embed-1b"
         const val NVIDIA_TRANSLATE_MODEL = "nvidia/riva-translate-4b-instruct-v2"
+        const val NVIDIA_FAST_MODEL = "nvidia/nemotron-3.5-bolt-e4b"
 
         val CURATED_NVIDIA_CHAT_MODELS = listOf(
             "nvidia/nemotron-3.5-super-vl-120b-a12b",
             "nvidia/nemotron-3-ultra-550b-a55b",
             "google/gemma-4-31b-it",
             "nvidia/nemotron-3.5-lightning-30b-a3b",
+            "nvidia/nemotron-3.5-bolt-e4b",
             "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
-            "mistralai/mistral-large-4-1t-a52b",
             "moonshotai/kimi-k3.1-pro"
         )
 
@@ -289,12 +293,23 @@ class DocenteAiEngine {
                 A partir del título y fragmento de un documento de estudio, devuelve exactamente 3 consultas académicas breves
                 (preferiblemente en inglés para máxima cobertura en OpenAlex/arXiv, o español si es tema local) separadas por salto de línea, sin numeración ni explicaciones.
             """.trimIndent()
-            val raw = callSimpleCompletion(
-                activeProvider,
-                settings,
-                sys,
-                "Título: ${document.title}\nExtracto:\n$sample"
-            )
+            val raw = if (settings.nvidiaApiKey.isNotBlank()) {
+                runCatching {
+                    callOpenAiCompatible(
+                        baseUrl = NVIDIA_BASE_URL,
+                        apiKey = settings.nvidiaApiKey,
+                        model = NVIDIA_FAST_MODEL,
+                        systemPrompt = sys,
+                        history = emptyList(),
+                        userPrompt = "Título: ${document.title}\nExtracto:\n$sample",
+                        imageBase64 = null
+                    ).first
+                }.getOrElse {
+                    callSimpleCompletion(activeProvider, settings, sys, "Título: ${document.title}\nExtracto:\n$sample")
+                }
+            } else {
+                callSimpleCompletion(activeProvider, settings, sys, "Título: ${document.title}\nExtracto:\n$sample")
+            }
             raw.lines()
                 .map { it.trim().removePrefix("-").removePrefix("*").replace(Regex("^\\d+[.)]\\s*"), "").trim('"', ' ') }
                 .filter { it.length > 3 }
@@ -369,38 +384,50 @@ class DocenteAiEngine {
     }
 
     /**
-     * Genera un cuestionario interactivo de comprensión lectora con diagnóstico de errores
-     * frecuentes y citas exactas del documento (listo también para exportar a Google Forms).
+     * Genera un cuestionario estilo NotebookLM: cantidad configurable (5/8/10/15),
+     * progresión de Fácil a Complejo, pista pedagógica antes de responder, diagnóstico
+     * de errores frecuentes y citas exactas del documento (listo para exportar a Google Forms).
      */
     suspend fun generateComprehensionQuiz(
         settings: AppSettings,
         document: StudyDocument,
         sections: List<DocSection>,
-        questionCount: Int = 5
+        questionCount: Int = 5,
+        difficulty: QuizDifficulty = QuizDifficulty.PROGRESIVO
     ): Result<List<QuizQuestion>> = withContext(Dispatchers.IO) {
         runCatching {
             val active = resolveEffectiveProvider(settings)
+            val count = questionCount.coerceIn(3, 15)
             val ctx = buildDocumentContext(
                 provider = active,
                 settings = settings,
                 document = document,
                 sections = sections,
-                userPrompt = "ideas centrales, tesis, conceptos clave, distinciones, evidencia y conclusiones",
+                userPrompt = "ideas centrales, tesis, conceptos clave, distinciones, evidencia, ejemplos y conclusiones",
                 focusSectionIndex = null,
                 useNvidiaRerank = false
-            ).contextText.take(36_000)
+            ).contextText.take(40_000)
 
             val sys = """
-                Eres un docente universitario diseñando una evaluación diagnóstica sobre "${document.title}".
-                Crea exactamente $questionCount preguntas de opción múltiple (4 opciones cada una) que evalúen comprensión real
-                (no memorización trivial) y detecten errores frecuentes de interpretación.
+                Eres un docente universitario diseñando una evaluación diagnóstica estilo NotebookLM sobre "${document.title}".
+                Crea exactamente $count preguntas de opción múltiple (4 opciones cada una) que evalúen comprensión real
+                y detecten errores frecuentes de interpretación.
+                ${difficulty.promptInstruction}
+
+                REGLAS OBLIGATORIAS:
+                - Incluye SIEMPRE una "hint" (pista útil que oriente hacia la parte relevante del documento o el concepto clave SIN regalar directamente la opción correcta).
+                - Incluye "difficulty" con valor exacto: "Fácil", "Medio" o "Difícil".
+                - Incluye "citation" con la etiqueta exacta donde se respalda (ej. "Pág. 4", "Cap. 2", "Sección 3").
+
                 Responde ÚNICAMENTE con un JSON array válido sin texto adicional:
                 [
                   {
+                    "difficulty": "Fácil|Medio|Difícil",
                     "question": "Pregunta clara y precisa",
+                    "hint": "Pista breve que ayuda a pensar sin revelar la respuesta",
                     "options": ["Opción A", "Opción B", "Opción C", "Opción D"],
                     "correctIndex": 0,
-                    "citation": "Pág. X o Sección X",
+                    "citation": "Pág. X",
                     "explanation": "Por qué la respuesta correcta se sostiene en el texto",
                     "misconception": "Error típico de comprensión que lleva a elegir los distractores"
                   }
@@ -411,6 +438,87 @@ class DocenteAiEngine {
             val parsed = parseQuizJson(raw)
             if (parsed.isEmpty()) error("No se pudo estructurar el cuestionario. Intenta nuevamente.")
             parsed
+        }
+    }
+
+    /**
+     * Genera Tarjetas de Estudio (Flashcards) interactivas estilo NotebookLM con pista, respuesta concisa y cita.
+     */
+    suspend fun generateFlashcards(
+        settings: AppSettings,
+        document: StudyDocument,
+        sections: List<DocSection>,
+        cardCount: Int = 8
+    ): Result<List<FlashcardItem>> = withContext(Dispatchers.IO) {
+        runCatching {
+            val active = resolveEffectiveProvider(settings)
+            val count = cardCount.coerceIn(4, 15)
+            val ctx = buildDocumentContext(
+                provider = active,
+                settings = settings,
+                document = document,
+                sections = sections,
+                userPrompt = "conceptos fundamentales, definiciones, tesis, diferencias clave y ejemplos",
+                focusSectionIndex = null,
+                useNvidiaRerank = false
+            ).contextText.take(36_000)
+
+            val sys = """
+                Crea exactamente $count tarjetas de estudio (flashcards) estilo NotebookLM sobre "${document.title}",
+                ordenadas de conceptos básicos (Fácil) a relaciones complejas (Difícil).
+                Responde ÚNICAMENTE con un JSON array válido sin texto adicional:
+                [
+                  {
+                    "difficulty": "Fácil|Medio|Difícil",
+                    "front": "Pregunta o concepto breve para recordar activamente",
+                    "hint": "Pista corta para activar la memoria sin dar la respuesta completa",
+                    "back": "Respuesta clara, rigurosa y concisa (máx 280 caracteres)",
+                    "citation": "Pág. X o Sección X"
+                  }
+                ]
+            """.trimIndent()
+
+            val raw = callSimpleCompletion(active, settings, sys, "Documento:\n$ctx")
+            val parsed = parseFlashcardsJson(raw)
+            if (parsed.isEmpty()) error("No se pudieron generar las tarjetas. Intenta nuevamente.")
+            parsed
+        }
+    }
+
+    /**
+     * Genera una Guía de Estudio completa estilo NotebookLM (Esquema, Preguntas de ensayo + Pauta, Glosario citado).
+     */
+    suspend fun generateStudyGuide(
+        settings: AppSettings,
+        document: StudyDocument,
+        sections: List<DocSection>
+    ): Result<String> = withContext(Dispatchers.IO) {
+        runCatching {
+            val active = resolveEffectiveProvider(settings)
+            val ctx = buildDocumentContext(
+                provider = active,
+                settings = settings,
+                document = document,
+                sections = sections,
+                userPrompt = "estructura global, tesis, conceptos clave, glosario, argumentos y preguntas de ensayo",
+                focusSectionIndex = null,
+                useNvidiaRerank = false
+            ).contextText.take(40_000)
+
+            val sys = """
+                Genera una Guía de Estudio académica estilo NotebookLM en español sobre "${document.title}".
+                Incluye estas 4 secciones claras en Markdown ligero, citando siempre [Pág. X] / [Sección X]:
+                ## 1. Mapa de Ideas Clave
+                (Síntesis estructurada de la tesis y los argumentos principales)
+                ## 2. Glosario de Términos Esenciales
+                (6 a 8 conceptos clave definidos según el autor, con cita)
+                ## 3. Preguntas de Desarrollo / Ensayo (de fácil a complejo)
+                (4 preguntas profundas con una breve pauta de qué debería cubrir una buena respuesta)
+                ## 4. Trampas de Lectura / Errores Frecuentes
+                (3 malentendidos comunes al estudiar este texto y cómo evitarlos)
+            """.trimIndent()
+
+            callSimpleCompletion(active, settings, sys, "Contenido del documento:\n$ctx").trim()
         }
     }
 
@@ -514,7 +622,38 @@ class DocenteAiEngine {
                     correctIndex = correctIdx,
                     citationRef = obj.optString("citation", "").trim(),
                     explanation = obj.optString("explanation", "").trim(),
-                    commonMisconception = obj.optString("misconception", "").trim()
+                    commonMisconception = obj.optString("misconception", "").trim(),
+                    hint = obj.optString("hint", "").trim(),
+                    difficultyLabel = obj.optString("difficulty", "Medio").trim().ifBlank { "Medio" }
+                )
+            )
+        }
+        return out
+    }
+
+    internal fun parseFlashcardsJson(raw: String): List<FlashcardItem> {
+        val cleaned = raw
+            .replace(Regex("(?s)^```(?:json)?\\s*"), "")
+            .replace(Regex("(?s)\\s*```$"), "")
+            .trim()
+        val start = cleaned.indexOf('[')
+        val end = cleaned.lastIndexOf(']')
+        if (start < 0 || end <= start) return emptyList()
+        val arr = JSONArray(cleaned.substring(start, end + 1))
+        val out = mutableListOf<FlashcardItem>()
+        for (i in 0 until arr.length()) {
+            val obj = arr.getJSONObject(i)
+            val front = obj.optString("front", "").trim()
+            val back = obj.optString("back", "").trim()
+            if (front.isBlank() || back.isBlank()) continue
+            out.add(
+                FlashcardItem(
+                    id = i + 1,
+                    front = front,
+                    hint = obj.optString("hint", "").trim(),
+                    back = back,
+                    citationRef = obj.optString("citation", "").trim(),
+                    difficultyLabel = obj.optString("difficulty", "Medio").trim().ifBlank { "Medio" }
                 )
             )
         }
@@ -539,7 +678,7 @@ class DocenteAiEngine {
                         passages = listOf("La comprensión lectora profunda requiere análisis crítico.", "Receta de cocina.")
                     ).firstOrNull() == 0
                 }.getOrDefault(false)
-                extra = if (embedOk) " · NVIDIA Embed 2048d OK" else " · Embed fallback BM25"
+                extra = if (embedOk) " · NVIDIA Embed 4096d OK" else " · Embed fallback BM25"
             }
             "Conectado (${active.displayName}$extra): ${reply.take(80)}"
         }
@@ -703,8 +842,19 @@ class DocenteAiEngine {
         inputs: List<String>,
         inputType: String
     ): List<DoubleArray> {
+        val primary = requestNvidiaEmbeddingsModel(apiKey, NVIDIA_EMBED_MODEL, inputs, inputType)
+        if (primary.isNotEmpty()) return primary
+        return requestNvidiaEmbeddingsModel(apiKey, NVIDIA_EMBED_FALLBACK_MODEL, inputs, inputType)
+    }
+
+    private fun requestNvidiaEmbeddingsModel(
+        apiKey: String,
+        modelId: String,
+        inputs: List<String>,
+        inputType: String
+    ): List<DoubleArray> {
         val payload = JSONObject().apply {
-            put("model", NVIDIA_EMBED_MODEL)
+            put("model", modelId)
             put("input", JSONArray().apply { inputs.forEach { put(it) } })
             put("input_type", inputType)
             put("encoding_format", "float")
@@ -718,20 +868,22 @@ class DocenteAiEngine {
             .post(payload.toString().toRequestBody(jsonMedia))
             .build()
 
-        client.newCall(req).execute().use { resp ->
-            if (!resp.isSuccessful) return emptyList()
-            val body = resp.body?.string().orEmpty()
-            val data = JSONObject(body).optJSONArray("data") ?: return emptyList()
-            val out = arrayOfNulls<DoubleArray>(data.length())
-            for (i in 0 until data.length()) {
-                val item = data.getJSONObject(i)
-                val idx = item.optInt("index", i).coerceIn(0, out.lastIndex)
-                val emb = item.getJSONArray("embedding")
-                val vec = DoubleArray(emb.length()) { k -> emb.getDouble(k) }
-                out[idx] = vec
+        return runCatching {
+            client.newCall(req).execute().use { resp ->
+                if (!resp.isSuccessful) return@use emptyList()
+                val body = resp.body?.string().orEmpty()
+                val data = JSONObject(body).optJSONArray("data") ?: return@use emptyList()
+                val out = arrayOfNulls<DoubleArray>(data.length())
+                for (i in 0 until data.length()) {
+                    val item = data.getJSONObject(i)
+                    val idx = item.optInt("index", i).coerceIn(0, out.lastIndex)
+                    val emb = item.getJSONArray("embedding")
+                    val vec = DoubleArray(emb.length()) { k -> emb.getDouble(k) }
+                    out[idx] = vec
+                }
+                out.filterNotNull()
             }
-            return out.filterNotNull()
-        }
+        }.getOrDefault(emptyList())
     }
 
     internal fun cosineSimilarity(a: DoubleArray, b: DoubleArray): Double {

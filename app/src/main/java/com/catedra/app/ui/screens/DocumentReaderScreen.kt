@@ -49,6 +49,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -102,12 +103,23 @@ fun DocumentReaderScreen(
     var showTocSheet by remember { mutableStateOf(false) }
     var showQuickNoteDialog by remember { mutableStateOf(false) }
 
+    // Sincronización automática: cuando la barra de lectura en voz alta avanza o retrocede de página,
+    // el Lector cambia automáticamente la página visible para seguir la narración.
+    LaunchedEffect(ttsState.currentSectionIndex, ttsState.isDocumentReading) {
+        if (ttsState.isDocumentReading &&
+            ttsState.currentSectionIndex in sections.indices &&
+            ttsState.currentSectionIndex != uiState.readerSectionIndex
+        ) {
+            onJumpToSection(ttsState.currentSectionIndex)
+        }
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
             .background(colors.background)
     ) {
-        // Top Bar minimalista
+        // Top Bar minimalista con botones directos de Anterior/Siguiente página
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -132,6 +144,30 @@ fun DocumentReaderScreen(
                     style = MaterialTheme.typography.labelSmall,
                     color = colors.textSecondary
                 )
+            }
+            if (sections.size > 1) {
+                IconButton(
+                    onClick = { onJumpToSection(curIdx - 1) },
+                    enabled = curIdx > 0,
+                    modifier = Modifier.size(34.dp)
+                ) {
+                    Icon(
+                        Icons.AutoMirrored.Rounded.KeyboardArrowLeft,
+                        contentDescription = "Página anterior",
+                        tint = if (curIdx > 0) colors.textPrimary else colors.textMuted
+                    )
+                }
+                IconButton(
+                    onClick = { onJumpToSection(curIdx + 1) },
+                    enabled = curIdx < sections.lastIndex,
+                    modifier = Modifier.size(34.dp)
+                ) {
+                    Icon(
+                        Icons.AutoMirrored.Rounded.KeyboardArrowRight,
+                        contentDescription = "Página siguiente",
+                        tint = if (curIdx < sections.lastIndex) colors.textPrimary else colors.textMuted
+                    )
+                }
             }
             if (supportsVisual) {
                 IconButton(onClick = { showVisualMode = !showVisualMode }) {

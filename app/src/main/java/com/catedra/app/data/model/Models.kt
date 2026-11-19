@@ -206,6 +206,25 @@ data class StorageStats(
     val totalBytes: Long get() = notesBytes + compressedIndexBytes + databaseBytes + cachedPapersBytes
 }
 
+enum class QuizDifficulty(val label: String, val promptInstruction: String) {
+    PROGRESIVO(
+        "Fácil → Difícil",
+        "ORDEN PROGRESIVO OBLIGATORIO: comienza con preguntas Fáciles (comprensión directa), avanza a Medias (inferencia y relación entre conceptos) y termina con Difíciles (análisis crítico, aplicación compleja y detección de falacias)."
+    ),
+    FACIL(
+        "Fácil",
+        "Todas las preguntas deben ser de nivel Fácil (comprensión clara de definiciones, hechos e ideas principales del texto)."
+    ),
+    MEDIO(
+        "Medio",
+        "Todas las preguntas deben ser de nivel Medio (inferencia, comparación de argumentos, causas y consecuencias)."
+    ),
+    DIFICIL(
+        "Difícil",
+        "Todas las preguntas deben ser de nivel Difícil (evaluación crítica, supuestos implícitos, contraargumentos y síntesis avanzada)."
+    )
+}
+
 data class QuizQuestion(
     val id: Int,
     val question: String,
@@ -213,16 +232,35 @@ data class QuizQuestion(
     val correctIndex: Int,
     val citationRef: String,
     val explanation: String,
-    val commonMisconception: String
+    val commonMisconception: String,
+    val hint: String = "",
+    val difficultyLabel: String = "Medio"
+)
+
+data class FlashcardItem(
+    val id: Int,
+    val front: String,
+    val hint: String,
+    val back: String,
+    val citationRef: String,
+    val difficultyLabel: String = "Medio"
 )
 
 data class QuizSessionState(
     val documentId: String = "",
     val documentTitle: String = "",
+    val questionCount: Int = 5,
+    val difficulty: QuizDifficulty = QuizDifficulty.PROGRESIVO,
     val questions: List<QuizQuestion> = emptyList(),
     val selectedAnswers: Map<Int, Int> = emptyMap(), // questionId -> chosen option index
+    val revealedHints: Set<Int> = emptySet(),
     val isLoading: Boolean = false,
-    val error: String? = null
+    val error: String? = null,
+    // Studio NotebookLM: Tarjetas (Flashcards) y Guía de Estudio
+    val flashcards: List<FlashcardItem> = emptyList(),
+    val isLoadingFlashcards: Boolean = false,
+    val studyGuideMarkdown: String = "",
+    val isLoadingStudyGuide: Boolean = false
 )
 
 data class LocalDocEntry(

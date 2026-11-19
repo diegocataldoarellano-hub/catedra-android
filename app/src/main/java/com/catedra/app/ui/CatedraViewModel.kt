@@ -18,10 +18,13 @@ import com.catedra.app.data.model.ChatMessage
 import com.catedra.app.data.model.DocSection
 import com.catedra.app.data.model.DocType
 import com.catedra.app.data.model.DriveFileItem
+import com.catedra.app.data.model.FlashcardItem
 import com.catedra.app.data.model.LocalDocEntry
 import com.catedra.app.data.model.MessageRole
 import com.catedra.app.data.model.NoteCategory
 import com.catedra.app.data.model.PaperResult
+import com.catedra.app.data.model.QuizDifficulty
+import com.catedra.app.data.model.QuizQuestion
 import com.catedra.app.data.model.QuizSessionState
 import com.catedra.app.data.model.StorageStats
 import com.catedra.app.data.model.StudyDocument
@@ -586,6 +589,22 @@ class CatedraViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
+    /**
+     * Cambia simultáneamente la página visible en el Lector y la sección del reproductor de voz
+     * al pulsar Anterior/Siguiente en la barra superior.
+     */
+    fun skipTtsAndReaderSection(delta: Int) {
+        val sections = _uiState.value.activeSections
+        if (sections.isEmpty()) return
+        val tts = voiceManager.ttsState.value
+        val baseIdx = if (tts.isDocumentReading) tts.currentSectionIndex else _uiState.value.readerSectionIndex
+        val nextIdx = (baseIdx + delta).coerceIn(0, sections.lastIndex)
+        jumpReaderToSection(nextIdx)
+        if (tts.isDocumentReading || tts.isPlaying) {
+            voiceManager.skipSection(delta)
+        }
+    }
+
     fun translateCurrentReaderSection() {
         val sections = _uiState.value.activeSections
         val idx = _uiState.value.readerSectionIndex.coerceIn(0, (sections.size - 1).coerceAtLeast(0))
@@ -1080,38 +1099,63 @@ class CatedraViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
-    // ---------- QUIZ DIAGNÓSTICO + GOOGLE FORMS ----------
+    // ---------- STUDIO ESTILO NOTEBOOKLM: QUIZ PROGRESIVO, TARJETAS, GUÍA Y GOOGLE FORMS ----------
 
-    fun generateQuizForActiveDocument() {
+    fun setQuizConfig(questionCount: Int, difficulty: QuizDifficulty) {
+        _uiState.update { state ->
+            state.copy(
+                quizState = state.quizState.copy(
+                    questionCount = questionCount.coerceIn(3, 15),
+                    difficulty = difficulty
+                )
+            )
+        }
+    }
+
+    fun generateQuizForActiveDocument(
+        overrideCount: Int? = null,
+        overrideDifficulty: QuizDifficulty? = null
+    ) {
         val doc = _uiState.value.activeDocument ?: return
         val sections = _uiState.value.activeSections
+        val cur = _uiState.value.quizState
+        val count = (overrideCount ?: cur.questionCount).coerceIn(3, 15)
+        val diff = overrideDifficulty ?: cur.difficulty
+
         _uiState.update {
             it.copy(
-                quizState = QuizSessionState(
+                quizState = cur.copy(
                     documentId = doc.id,
                     documentTitle = doc.title,
-                    isLoading = true
+                    questionCount = count,
+                    difficulty = diff,
+                    isLoading = true,
+                    error = null
                 )
             )
         }
         viewModelScope.launch {
-            val res = aiEngine.generateComprehensionQuiz(_uiState.value.settings, doc, sections, questionCount = 5)
+            val res = aiEngine.generateComprehensionQuiz(_uiState.value.settings, doc, sections, count, diff)
             res.onSuccess { questions ->
-                _uiState.update {
-                    it.copy(
-                        quizState = QuizSessionState(
+                _uiState.update { state ->
+                    state.copy(
+                        quizState = state.quizState.copy(
                             documentId = doc.id,
                             documentTitle = doc.title,
+                            questionCount = count,
+                            difficulty = diff,
                             questions = questions,
                             selectedAnswers = emptyMap(),
-                            isLoading = false
+                            revealedHints = emptySet(),
+                            isLoading = false,
+                            error = null
                         )
                     )
                 }
             }.onFailure { err ->
-                _uiState.update {
-                    it.copy(
-                        quizState = QuizSessionState(
+                _uiState.update { state ->
+                    state.copy(
+                        quizState = state.quizState.copy(
                             documentId = doc.id,
                             documentTitle = doc.title,
                             isLoading = false,
@@ -1121,6 +1165,88 @@ class CatedraViewModel(application: Application) : AndroidViewModel(application)
                 }
             }
         }
+    }
+
+    fun toggleQuizHint(questionId: Int) {
+        _uiState.update { state ->
+            val next = state.quizState.revealedHints.toMutableSet()
+            if (!next.add(questionId)) next.remove(questionId)
+            state.copy(quizState = state.quizState.copy(revealedHints = next))
+        }
+    }
+
+    fun askDocenteAboutQuizQuestion(q: QuizQuestion) {
+        val doc = _uiState.value.activeDocument ?: return
+        navigateTo(CatedraScreen.Chat(doc.id))
+        val cite = if (q.citationRef.isNotBlank()) " [${q.citationRef}]" else ""
+        sendChatMessage("En la mini prueba apareció esta pregunta (${q.difficultyLabel}$cite): \"${q.question}\". Explícame con calma y un ejemplo por qué la respuesta correcta es \"${q.options.getOrNull(q.correctIndex).orEmpty()}\" y cómo evitar el error de comprensión.")
+    }
+
+    fun generateFlashcardsForActiveDocument() {
+        val doc = _uiState.value.activeDocument ?: return
+        val sections = _uiState.value.activeSections
+        val count = _uiState.value.quizState.questionCount.coerceIn(5, 12)
+        _uiState.update { state ->
+            state.copy(quizState = state.quizState.copy(documentId = doc.id, documentTitle = doc.title, isLoadingFlashcards = true))
+        }
+        viewModelScope.launch {
+            val res = aiEngine.generateFlashcards(_uiState.value.settings, doc, sections, cardCount = count)
+            res.onSuccess { cards ->
+                _uiState.update { state ->
+                    state.copy(quizState = state.quizState.copy(flashcards = cards, isLoadingFlashcards = false))
+                }
+            }.onFailure { err ->
+                _uiState.update { state ->
+                    state.copy(
+                        quizState = state.quizState.copy(isLoadingFlashcards = false),
+                        snackbarMessage = err.message ?: "No se pudieron generar las tarjetas"
+                    )
+                }
+            }
+        }
+    }
+
+    fun saveFlashcardMasteredToNotes(card: FlashcardItem) {
+        addManualNote(
+            category = NoteCategory.COMPRENDIDO,
+            content = "${card.front} → ${card.back}".take(420),
+            citationRef = card.citationRef,
+            isFromVoice = false
+        )
+    }
+
+    fun generateStudyGuideForActiveDocument() {
+        val doc = _uiState.value.activeDocument ?: return
+        val sections = _uiState.value.activeSections
+        _uiState.update { state ->
+            state.copy(quizState = state.quizState.copy(documentId = doc.id, documentTitle = doc.title, isLoadingStudyGuide = true))
+        }
+        viewModelScope.launch {
+            val res = aiEngine.generateStudyGuide(_uiState.value.settings, doc, sections)
+            res.onSuccess { guide ->
+                _uiState.update { state ->
+                    state.copy(quizState = state.quizState.copy(studyGuideMarkdown = guide, isLoadingStudyGuide = false))
+                }
+            }.onFailure { err ->
+                _uiState.update { state ->
+                    state.copy(
+                        quizState = state.quizState.copy(isLoadingStudyGuide = false),
+                        snackbarMessage = err.message ?: "No se pudo generar la Guía de Estudio"
+                    )
+                }
+            }
+        }
+    }
+
+    fun saveStudyGuideToNotes() {
+        val guide = _uiState.value.quizState.studyGuideMarkdown
+        if (guide.isBlank()) return
+        addManualNote(
+            category = NoteCategory.COMPRENDIDO,
+            content = guide.take(1200),
+            citationRef = "Guía de Estudio",
+            isFromVoice = false
+        )
     }
 
     fun selectQuizOption(questionId: Int, optionIndex: Int) {

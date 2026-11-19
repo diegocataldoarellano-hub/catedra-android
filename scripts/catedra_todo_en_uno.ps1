@@ -70,7 +70,7 @@ if ($NvidiaApiKey.Trim().Length -gt 0) {
     }
     try {
         $embBody = @{
-            model = "nvidia/nemotron-3-embed-1b"
+            model = "nvidia/nemotron-3.5-embed-8b"
             input = @("El analisis critico requiere contrastar tesis y evidencias con citas exactas.")
             input_type = "passage"
             encoding_format = "float"
@@ -82,7 +82,7 @@ if ($NvidiaApiKey.Trim().Length -gt 0) {
             -Headers @{ Authorization = "Bearer $cleanNv"; Accept = "application/json" } `
             -ContentType "application/json; charset=utf-8" `
             -Body $embBytes -TimeoutSec 25
-        Write-Host "  OK -> Skill NVIDIA Nemotron-3-Embed-1B operativa (dim=$($em.data[0].embedding.Count))." -ForegroundColor Green
+        Write-Host "  OK -> Skill NVIDIA Nemotron-3.5-Embed-8B operativa (dim=$($em.data[0].embedding.Count))." -ForegroundColor Green
     } catch {
         Write-Host "  AVISO -> Embeddings devolvió aviso (respaldo BM25 automático): $($_.Exception.Message)" -ForegroundColor Yellow
     }
