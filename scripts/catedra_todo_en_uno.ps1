@@ -158,10 +158,17 @@ if ($PublishGitHub) {
 $ApkToInstall = "$ProjectDir\dist\Catedra-$VersionTag.apk"
 if ($hasLocalKeys) {
     Write-Host "`n[4/6] Compilando APK PERSONAL (con tus API keys preconfiguradas solo para tu celular)..." -ForegroundColor Yellow
-    .\gradlew.bat assembleDebug -PinjectPersonalKeys=true --no-daemon
-    if ($LASTEXITCODE -ne 0) { throw "Falló compilación personal." }
-    $ApkToInstall = "$ProjectDir\dist\Catedra-personal.apk"
-    Copy-Item "$ProjectDir\app\build\outputs\apk\debug\app-debug.apk" $ApkToInstall -Force
+    $env:CATEDRA_INJECT_PERSONAL_KEYS = "true"
+    try {
+        .\gradlew.bat assembleDebug --no-daemon
+        if ($LASTEXITCODE -ne 0) { throw "Falló compilación personal." }
+        $ApkToInstall = "$ProjectDir\dist\Catedra-personal.apk"
+        Copy-Item "$ProjectDir\app\build\outputs\apk\debug\app-debug.apk" $ApkToInstall -Force
+    } finally {
+        Remove-Item Env:\CATEDRA_INJECT_PERSONAL_KEYS -ErrorAction SilentlyContinue
+    }
+    # Limpiar BuildConfig generado para dejar el árbol de build sin claves
+    .\gradlew.bat :app:generateDebugBuildConfig --no-daemon | Out-Null
 } elseif (-not $PublishGitHub) {
     Write-Host "`n[4/6] Compilando APK..." -ForegroundColor Yellow
     .\gradlew.bat assembleDebug --no-daemon

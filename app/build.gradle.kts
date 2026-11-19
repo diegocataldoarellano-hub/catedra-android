@@ -9,7 +9,8 @@ val localProps = Properties().apply {
     val f = rootProject.file("local.properties")
     if (f.exists()) f.inputStream().use { load(it) }
 }
-val injectPersonalKeys = (project.findProperty("injectPersonalKeys")?.toString() == "true")
+val injectPersonalKeys = (System.getenv("CATEDRA_INJECT_PERSONAL_KEYS") == "true") ||
+    (project.findProperty("injectPersonalKeys")?.toString() == "true")
 val defaultNvidiaKey = if (injectPersonalKeys) (localProps.getProperty("catedra.nvidia.key") ?: "").trim() else ""
 val defaultGeminiKey = if (injectPersonalKeys) (localProps.getProperty("catedra.gemini.key") ?: "").trim() else ""
 
