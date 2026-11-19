@@ -8,6 +8,7 @@ import android.graphics.Color
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.provider.DocumentsContract
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -32,6 +33,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
+import com.catedra.app.data.local.WhatsAppDocsScanner
 import com.catedra.app.media.VoiceTarget
 import com.catedra.app.ui.CatedraScreen
 import com.catedra.app.ui.CatedraViewModel
@@ -44,6 +46,7 @@ import com.catedra.app.ui.screens.NotesScreen
 import com.catedra.app.ui.screens.PaperSearchScreen
 import com.catedra.app.ui.screens.QuizScreen
 import com.catedra.app.ui.screens.SettingsScreen
+import com.catedra.app.ui.screens.WhatsAppDocsScreen
 import com.catedra.app.ui.theme.CatedraTheme
 import java.io.File
 
@@ -154,6 +157,45 @@ private fun CatedraRoot(viewModel: CatedraViewModel) {
         }
     }
 
+    val whatsAppTreeLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        val treeUri = result.data?.data
+        if (treeUri != null) {
+            viewModel.linkWhatsAppFolder(treeUri)
+        }
+    }
+
+    val whatsAppSingleDocLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        val docUri = result.data?.data
+        if (docUri != null) {
+            viewModel.importDocumentFromUri(docUri)
+        }
+    }
+
+    fun launchLinkWhatsAppFolder() {
+        val (initialUri, _) = WhatsAppDocsScanner.detectInitialWhatsAppUri()
+        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).apply {
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
+            putExtra(DocumentsContract.EXTRA_INITIAL_URI, initialUri)
+        }
+        whatsAppTreeLauncher.launch(intent)
+    }
+
+    fun launchPickSingleWhatsAppDocument() {
+        val (initialUri, _) = WhatsAppDocsScanner.detectInitialWhatsAppUri()
+        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type = "*/*"
+            putExtra(Intent.EXTRA_MIME_TYPES, WhatsAppDocsScanner.DOCUMENT_ONLY_MIME_TYPES)
+            putExtra(DocumentsContract.EXTRA_INITIAL_URI, initialUri)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
+        }
+        whatsAppSingleDocLauncher.launch(intent)
+    }
+
     val cameraLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.TakePicture()
     ) { success ->
@@ -250,6 +292,7 @@ private fun CatedraRoot(viewModel: CatedraViewModel) {
                             onCreatePastedText = { title, body -> viewModel.createTextStudyDocument(title, body) },
                             onOpenPapers = { viewModel.navigateTo(CatedraScreen.Papers()) },
                             onOpenEcosystem = { viewModel.navigateTo(CatedraScreen.Ecosystem) },
+                            onOpenWhatsAppDocs = { viewModel.navigateTo(CatedraScreen.WhatsAppDocs) },
                             onOpenDrive = { viewModel.navigateTo(CatedraScreen.Drive) },
                             onOpenSettings = { viewModel.navigateTo(CatedraScreen.Settings) },
                             onTogglePin = viewModel::togglePinDocument,
@@ -402,6 +445,19 @@ private fun CatedraRoot(viewModel: CatedraViewModel) {
                             onSearchGoogleScholar = { q -> openInCustomTab(context, viewModel.buildGoogleScholarUrl(q)) },
                             onImportPaperLinkOrDoi = viewModel::importPaperFromUrlOrDoi,
                             onShowMessage = viewModel::showMessage
+                        )
+                    }
+
+                    is CatedraScreen.WhatsAppDocs -> {
+                        val (_, detectedHint) = remember { WhatsAppDocsScanner.detectInitialWhatsAppUri() }
+                        WhatsAppDocsScreen(
+                            uiState = uiState,
+                            detectedFolderHint = detectedHint,
+                            onBack = { viewModel.navigateBack() },
+                            onLinkWhatsAppFolder = ::launchLinkWhatsAppFolder,
+                            onPickSingleWhatsAppDoc = ::launchPickSingleWhatsAppDocument,
+                            onRefresh = viewModel::refreshWhatsAppDocs,
+                            onOpenDocument = viewModel::openWhatsAppDocument
                         )
                     }
 

@@ -55,7 +55,8 @@ class SettingsStore(context: Context) {
             driveTokenExpiresAt = prefs.getLong("drive_token_expires_at", 0L),
             driveUserEmail = prefs.getString("drive_user_email", "") ?: "",
             driveNotesFolderId = prefs.getString("drive_notes_folder_id", "") ?: "",
-            exportFolderUri = prefs.getString("export_folder_uri", "") ?: ""
+            exportFolderUri = prefs.getString("export_folder_uri", "") ?: "",
+            whatsappTreeUri = prefs.getString("whatsapp_tree_uri", "") ?: ""
         )
     }
 
@@ -84,6 +85,7 @@ class SettingsStore(context: Context) {
             .putString("drive_user_email", settings.driveUserEmail.trim())
             .putString("drive_notes_folder_id", settings.driveNotesFolderId.trim())
             .putString("export_folder_uri", settings.exportFolderUri.trim())
+            .putString("whatsapp_tree_uri", settings.whatsappTreeUri.trim())
             .apply()
     }
 }

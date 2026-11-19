@@ -11,12 +11,14 @@ import com.catedra.app.data.ai.DocenteAiEngine
 import com.catedra.app.data.local.CatedraDatabase
 import com.catedra.app.data.local.CompactKnowledgeStore
 import com.catedra.app.data.local.SettingsStore
+import com.catedra.app.data.local.WhatsAppDocsScanner
 import com.catedra.app.data.local.formatCompactSize
 import com.catedra.app.data.model.AppSettings
 import com.catedra.app.data.model.ChatMessage
 import com.catedra.app.data.model.DocSection
 import com.catedra.app.data.model.DocType
 import com.catedra.app.data.model.DriveFileItem
+import com.catedra.app.data.model.LocalDocEntry
 import com.catedra.app.data.model.MessageRole
 import com.catedra.app.data.model.NoteCategory
 import com.catedra.app.data.model.PaperResult
@@ -49,6 +51,7 @@ sealed class CatedraScreen {
     data class Papers(val initialQuery: String = "", val contextDocId: String? = null) : CatedraScreen()
     data class Quiz(val documentId: String) : CatedraScreen()
     object Ecosystem : CatedraScreen()
+    object WhatsAppDocs : CatedraScreen()
     object Drive : CatedraScreen()
     object Settings : CatedraScreen()
 }
@@ -90,7 +93,10 @@ data class CatedraUiState(
     val isTestingConnection: Boolean = false,
     val connectionTestResult: String? = null,
     // Quiz & Google Forms
-    val quizState: QuizSessionState = QuizSessionState()
+    val quizState: QuizSessionState = QuizSessionState(),
+    // WhatsApp Documents (solo documentos)
+    val whatsappDocs: List<LocalDocEntry> = emptyList(),
+    val isLoadingWhatsAppDocs: Boolean = false
 )
 
 class CatedraViewModel(application: Application) : AndroidViewModel(application) {
@@ -150,6 +156,9 @@ class CatedraViewModel(application: Application) : AndroidViewModel(application)
             }
             is CatedraScreen.Ecosystem -> {
                 refreshHome()
+            }
+            is CatedraScreen.WhatsAppDocs -> {
+                refreshWhatsAppDocs()
             }
             is CatedraScreen.Drive -> {
                 if (_uiState.value.settings.hasDriveConnected() && _uiState.value.driveFiles.isEmpty()) {
@@ -1222,6 +1231,52 @@ class CatedraViewModel(application: Application) : AndroidViewModel(application)
                 }
             }
         }
+    }
+
+    // ---------- DOCUMENTOS DE WHATSAPP (SOLO DOCUMENTOS) ----------
+
+    fun linkWhatsAppFolder(treeUri: Uri) {
+        runCatching {
+            appContext.contentResolver.takePersistableUriPermission(
+                treeUri,
+                Intent.FLAG_GRANT_READ_URI_PERMISSION
+            )
+        }
+        saveSettings(_uiState.value.settings.copy(whatsappTreeUri = treeUri.toString()))
+        refreshWhatsAppDocs()
+    }
+
+    fun refreshWhatsAppDocs() {
+        val treeUri = _uiState.value.settings.whatsappTreeUri
+        viewModelScope.launch {
+            _uiState.update { it.copy(isLoadingWhatsAppDocs = true) }
+            if (treeUri.isNotBlank()) {
+                WhatsAppDocsScanner.listDocumentsInTree(appContext, treeUri)
+                    .onSuccess { docs ->
+                        _uiState.update { it.copy(whatsappDocs = docs, isLoadingWhatsAppDocs = false) }
+                    }
+                    .onFailure { err ->
+                        _uiState.update {
+                            it.copy(
+                                whatsappDocs = emptyList(),
+                                isLoadingWhatsAppDocs = false,
+                                snackbarMessage = err.message
+                            )
+                        }
+                    }
+            } else {
+                val fallback = WhatsAppDocsScanner.tryDirectScanFallback()
+                _uiState.update { it.copy(whatsappDocs = fallback, isLoadingWhatsAppDocs = false) }
+            }
+        }
+    }
+
+    fun openWhatsAppDocument(entry: LocalDocEntry) {
+        importDocumentFromUri(
+            uri = Uri.parse(entry.uri),
+            forcedFileName = entry.name,
+            forcedMime = entry.mimeType
+        )
     }
 
     // ---------- GOOGLE DRIVE API ----------

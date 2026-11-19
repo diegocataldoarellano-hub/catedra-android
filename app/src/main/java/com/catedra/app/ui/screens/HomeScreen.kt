@@ -41,6 +41,7 @@ import androidx.compose.material.icons.rounded.School
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Storage
+import androidx.compose.material.icons.rounded.Topic
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DrawerValue
@@ -97,6 +98,7 @@ fun HomeScreen(
     onCreatePastedText: (String, String) -> Unit,
     onOpenPapers: () -> Unit,
     onOpenEcosystem: () -> Unit,
+    onOpenWhatsAppDocs: () -> Unit,
     onOpenDrive: () -> Unit,
     onOpenSettings: () -> Unit,
     onTogglePin: (StudyDocument) -> Unit,
@@ -185,6 +187,10 @@ fun HomeScreen(
                 DrawerRow(Icons.Rounded.FolderOpen, "Abrir archivo (Celular / Drive)") {
                     scope.launch { drawerState.close() }
                     onPickFile()
+                }
+                DrawerRow(Icons.Rounded.Topic, "Documentos de WhatsApp") {
+                    scope.launch { drawerState.close() }
+                    onOpenWhatsAppDocs()
                 }
                 DrawerRow(Icons.Rounded.School, "Papers y Google Scholar") {
                     scope.launch { drawerState.close() }
@@ -295,6 +301,13 @@ fun HomeScreen(
                                 .weight(1f)
                                 .padding(start = 6.dp)
                         )
+                        IconButton(onClick = onOpenWhatsAppDocs) {
+                            Icon(
+                                Icons.Rounded.Topic,
+                                contentDescription = "Documentos de WhatsApp",
+                                tint = Color(0xFF25D366)
+                            )
+                        }
                         IconButton(onClick = onOpenPapers) {
                             Icon(Icons.Rounded.School, contentDescription = "Papers", tint = colors.textSecondary)
                         }
@@ -490,6 +503,14 @@ fun HomeScreen(
                 ) {
                     showAddSheet = false
                     onPickFile()
+                }
+                SheetActionItem(
+                    icon = Icons.Rounded.Topic,
+                    title = "Documentos descargados de WhatsApp",
+                    subtitle = "Acceso rápido filtrado SOLO a documentos (sin fotos ni videos)"
+                ) {
+                    showAddSheet = false
+                    onOpenWhatsAppDocs()
                 }
                 SheetActionItem(
                     icon = Icons.Rounded.CameraAlt,

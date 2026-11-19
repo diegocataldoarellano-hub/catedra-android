@@ -167,7 +167,8 @@ data class AppSettings(
     val driveTokenExpiresAt: Long = 0L,
     val driveUserEmail: String = "",
     val driveNotesFolderId: String = "",
-    val exportFolderUri: String = ""
+    val exportFolderUri: String = "",
+    val whatsappTreeUri: String = ""
 ) {
     companion object {
         const val DEFAULT_DRIVE_BRIDGE_URL = "https://catedra-portal.onrender.com"
@@ -211,4 +212,13 @@ data class QuizSessionState(
     val selectedAnswers: Map<Int, Int> = emptyMap(), // questionId -> chosen option index
     val isLoading: Boolean = false,
     val error: String? = null
+)
+
+data class LocalDocEntry(
+    val uri: String,
+    val name: String,
+    val docType: DocType,
+    val mimeType: String,
+    val sizeBytes: Long,
+    val lastModified: Long
 )

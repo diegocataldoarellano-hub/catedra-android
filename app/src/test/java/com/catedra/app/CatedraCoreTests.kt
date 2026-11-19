@@ -1,6 +1,7 @@
 package com.catedra.app
 
 import com.catedra.app.data.ai.DocenteAiEngine
+import com.catedra.app.data.local.WhatsAppDocsScanner
 import com.catedra.app.data.local.formatCompactSize
 import com.catedra.app.data.model.DocSection
 import com.catedra.app.data.model.DocType
@@ -285,5 +286,23 @@ class CatedraCoreTests {
         val simOrtho = engine.cosineSimilarity(doubleArrayOf(1.0, 0.0), doubleArrayOf(0.0, 1.0))
         assertTrue(simSame > 0.999)
         assertTrue(simOrtho < 0.001)
+    }
+
+    @Test
+    fun testWhatsAppScannerStrictDocumentFilter() {
+        assertTrue(WhatsAppDocsScanner.isAllowedDocumentName("clase_semana3.pdf"))
+        assertTrue(WhatsAppDocsScanner.isAllowedDocumentName("Resumen_Final.DOCX"))
+        assertTrue(WhatsAppDocsScanner.isAllowedDocumentName("planilla_notas.xlsx"))
+        assertTrue(WhatsAppDocsScanner.isAllowedDocumentName("presentacion.pptx"))
+        assertTrue(WhatsAppDocsScanner.isAllowedDocumentName("libro.epub"))
+        assertTrue(WhatsAppDocsScanner.isAllowedDocumentName("datos.csv"))
+        assertTrue(WhatsAppDocsScanner.isAllowedDocumentName("apunte.txt"))
+        // Estrictamente excluidos: fotos, videos, audios, APKs y comprimidos
+        assertFalse(WhatsAppDocsScanner.isAllowedDocumentName("IMG-20261119-WA0001.jpg"))
+        assertFalse(WhatsAppDocsScanner.isAllowedDocumentName("VID-20261119-WA0002.mp4"))
+        assertFalse(WhatsAppDocsScanner.isAllowedDocumentName("PTT-20261119-WA0003.opus"))
+        assertFalse(WhatsAppDocsScanner.isAllowedDocumentName("foto.png"))
+        assertFalse(WhatsAppDocsScanner.isAllowedDocumentName("sticker.webp"))
+        assertFalse(WhatsAppDocsScanner.isAllowedDocumentName("app.apk"))
     }
 }
