@@ -65,6 +65,7 @@ fun DriveBrowserScreen(
     onDisconnectDrive: () -> Unit,
     onRefreshDrive: (String) -> Unit,
     onImportDriveFile: (DriveFileItem) -> Unit,
+    onOpenGoogleForm: (DriveFileItem) -> Unit,
     onOpenSettings: () -> Unit
 ) {
     val colors = LocalCatedraColors.current
@@ -259,11 +260,14 @@ fun DriveBrowserScreen(
             } else {
                 LazyColumn(modifier = Modifier.fillMaxSize()) {
                     items(uiState.driveFiles, key = { it.id }) { item ->
+                        val isForm = item.mimeType == "application/vnd.google-apps.form"
                         val docType = DocType.fromFileNameAndMime(item.name, item.mimeType)
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clickable { onImportDriveFile(item) }
+                                .clickable {
+                                    if (isForm) onOpenGoogleForm(item) else onImportDriveFile(item)
+                                }
                                 .padding(horizontal = 14.dp, vertical = 11.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
@@ -277,7 +281,11 @@ fun DriveBrowserScreen(
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
                                 )
-                                val sizeStr = if (item.sizeBytes > 0) formatCompactSize(item.sizeBytes) else "Google Doc/Sheet"
+                                val sizeStr = when {
+                                    isForm -> "Google Form (abrir)"
+                                    item.sizeBytes > 0 -> formatCompactSize(item.sizeBytes)
+                                    else -> "Google Doc/Sheet"
+                                }
                                 Text(
                                     text = "$sizeStr · ${item.modifiedTime}",
                                     style = MaterialTheme.typography.labelSmall,

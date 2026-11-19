@@ -20,6 +20,7 @@ import com.catedra.app.data.model.DriveFileItem
 import com.catedra.app.data.model.MessageRole
 import com.catedra.app.data.model.NoteCategory
 import com.catedra.app.data.model.PaperResult
+import com.catedra.app.data.model.QuizSessionState
 import com.catedra.app.data.model.StorageStats
 import com.catedra.app.data.model.StudyDocument
 import com.catedra.app.data.model.StudyNote
@@ -46,6 +47,8 @@ sealed class CatedraScreen {
     data class Reader(val documentId: String, val initialSectionIndex: Int = 0) : CatedraScreen()
     data class Notes(val documentId: String) : CatedraScreen()
     data class Papers(val initialQuery: String = "", val contextDocId: String? = null) : CatedraScreen()
+    data class Quiz(val documentId: String) : CatedraScreen()
+    object Ecosystem : CatedraScreen()
     object Drive : CatedraScreen()
     object Settings : CatedraScreen()
 }
@@ -85,7 +88,9 @@ data class CatedraUiState(
     val nvidiaCatalogModels: List<String> = emptyList(),
     val isLoadingNvidiaCatalog: Boolean = false,
     val isTestingConnection: Boolean = false,
-    val connectionTestResult: String? = null
+    val connectionTestResult: String? = null,
+    // Quiz & Google Forms
+    val quizState: QuizSessionState = QuizSessionState()
 )
 
 class CatedraViewModel(application: Application) : AndroidViewModel(application) {
@@ -136,6 +141,15 @@ class CatedraViewModel(application: Application) : AndroidViewModel(application)
                 if (screen.initialQuery.isNotBlank()) {
                     searchPapers(screen.initialQuery)
                 }
+            }
+            is CatedraScreen.Quiz -> {
+                loadDocumentSession(screen.documentId)
+                if (_uiState.value.quizState.documentId != screen.documentId || _uiState.value.quizState.questions.isEmpty()) {
+                    generateQuizForActiveDocument()
+                }
+            }
+            is CatedraScreen.Ecosystem -> {
+                refreshHome()
             }
             is CatedraScreen.Drive -> {
                 if (_uiState.value.settings.hasDriveConnected() && _uiState.value.driveFiles.isEmpty()) {
@@ -987,6 +1001,227 @@ class CatedraViewModel(application: Application) : AndroidViewModel(application)
             append("¿En qué coinciden, dónde se contradicen y qué aporta este otro paper a la comprensión crítica del tema?")
         }
         sendChatMessage(comparePrompt)
+    }
+
+    fun buildGoogleScholarUrl(query: String): String = paperService.buildGoogleScholarUrl(query)
+
+    fun formatApaCitation(paper: PaperResult): String = paperService.formatApaCitation(paper)
+
+    fun formatBibTexCitation(paper: PaperResult): String = paperService.formatBibTexCitation(paper)
+
+    fun importPaperFromUrlOrDoi(rawInput: String) {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isImportingDocument = true, importStatusText = "Resolviendo DOI / enlace académico...") }
+            val resolved = paperService.resolvePaperUrlOrDoi(rawInput)
+            _uiState.update { it.copy(isImportingDocument = false, importStatusText = "") }
+            resolved.onSuccess { paper ->
+                if (!paper.openAccessPdfUrl.isNullOrBlank()) {
+                    importPaperPdf(paper)
+                } else {
+                    studyPaperFromAbstract(paper)
+                }
+            }.onFailure { err ->
+                showMessage(err.message ?: "No se pudo importar ese enlace.")
+            }
+        }
+    }
+
+    // ---------- QUIZ DIAGNÓSTICO + GOOGLE FORMS ----------
+
+    fun generateQuizForActiveDocument() {
+        val doc = _uiState.value.activeDocument ?: return
+        val sections = _uiState.value.activeSections
+        _uiState.update {
+            it.copy(
+                quizState = QuizSessionState(
+                    documentId = doc.id,
+                    documentTitle = doc.title,
+                    isLoading = true
+                )
+            )
+        }
+        viewModelScope.launch {
+            val res = aiEngine.generateComprehensionQuiz(_uiState.value.settings, doc, sections, questionCount = 5)
+            res.onSuccess { questions ->
+                _uiState.update {
+                    it.copy(
+                        quizState = QuizSessionState(
+                            documentId = doc.id,
+                            documentTitle = doc.title,
+                            questions = questions,
+                            selectedAnswers = emptyMap(),
+                            isLoading = false
+                        )
+                    )
+                }
+            }.onFailure { err ->
+                _uiState.update {
+                    it.copy(
+                        quizState = QuizSessionState(
+                            documentId = doc.id,
+                            documentTitle = doc.title,
+                            isLoading = false,
+                            error = err.message ?: "No se pudo generar el cuestionario."
+                        )
+                    )
+                }
+            }
+        }
+    }
+
+    fun selectQuizOption(questionId: Int, optionIndex: Int) {
+        _uiState.update { state ->
+            val updated = state.quizState.selectedAnswers.toMutableMap()
+            updated[questionId] = optionIndex
+            state.copy(quizState = state.quizState.copy(selectedAnswers = updated))
+        }
+    }
+
+    fun saveQuizMistakesToNotes() {
+        val qState = _uiState.value.quizState
+        val doc = _uiState.value.activeDocument ?: return
+        val mistakes = qState.questions.filter { q ->
+            val sel = qState.selectedAnswers[q.id]
+            sel != null && sel != q.correctIndex
+        }
+        if (mistakes.isEmpty()) {
+            showMessage("No hubo errores que registrar.")
+            return
+        }
+        val now = System.currentTimeMillis()
+        mistakes.forEachIndexed { idx, q ->
+            val chosenOpt = q.options.getOrNull(qState.selectedAnswers[q.id] ?: -1).orEmpty()
+            val rightOpt = q.options.getOrNull(q.correctIndex).orEmpty()
+            val noteBody = "En '${q.question}' elegí '$chosenOpt', pero lo correcto es '$rightOpt'. ${q.explanation}"
+            db.insertNote(
+                StudyNote(
+                    id = UUID.randomUUID().toString(),
+                    documentId = doc.id,
+                    category = NoteCategory.ERROR_CORREGIDO,
+                    content = noteBody.take(420),
+                    citationRef = q.citationRef,
+                    isFromVoice = false,
+                    createdAt = now + idx
+                )
+            )
+        }
+        val notes = db.getNotes(doc.id)
+        val file = knowledgeStore.writeMarkdownNotesFile(doc, notes)
+        _uiState.update {
+            it.copy(
+                activeNotes = notes,
+                activeNoteFileBytes = file.length(),
+                documents = db.getAllDocuments(),
+                storageStats = knowledgeStore.getStorageStats(),
+                snackbarMessage = "${mistakes.size} error(es) de comprensión guardados en tus notas .md (${formatCompactSize(file.length())})."
+            )
+        }
+    }
+
+    fun buildGoogleFormsAppsScript(): String {
+        val qState = _uiState.value.quizState
+        return aiEngine.buildGoogleFormsAppsScript(qState.documentTitle, qState.questions)
+    }
+
+    // ---------- NOTEBOOKLM + AUDIO-RESUMEN HABLADO ----------
+
+    fun buildNotebookLmBundle(doc: StudyDocument): String {
+        val sections = knowledgeStore.loadSections(doc.id)
+        val notes = db.getNotes(doc.id)
+        return buildString {
+            appendLine("# Fuente de Estudio para NotebookLM: ${doc.title}")
+            appendLine("Archivo: ${doc.fileName} | Secciones: ${doc.totalSections}")
+            if (!doc.paperAuthors.isNullOrBlank()) appendLine("Autores: ${doc.paperAuthors} (${doc.paperYear ?: ""})")
+            if (!doc.paperDoi.isNullOrBlank()) appendLine("DOI: ${doc.paperDoi}")
+            appendLine()
+            if (notes.isNotEmpty()) {
+                appendLine(knowledgeStore.buildCompactMarkdown(doc, notes))
+                appendLine("---")
+                appendLine()
+            }
+            appendLine("## Contenido Completo del Documento")
+            var charCount = 0
+            for (sec in sections) {
+                if (charCount > 180_000) {
+                    appendLine("\n[Contenido truncado a 180k caracteres para portabilidad.]")
+                    break
+                }
+                appendLine("\n### [${sec.label}] ${sec.title}")
+                appendLine(sec.content)
+                charCount += sec.content.length
+            }
+        }
+    }
+
+    fun uploadNotebookLmBundleToDrive(doc: StudyDocument) {
+        val settings = _uiState.value.settings
+        if (!settings.hasDriveConnected()) {
+            showMessage("Conecta Google Drive primero (Menú → Google Drive) para subir fuentes a Catedra_NotebookLM.")
+            return
+        }
+        viewModelScope.launch {
+            val fresh = driveService.ensureFreshToken(settings).getOrElse { err ->
+                showMessage(err.message ?: "Error renovando Google Drive")
+                return@launch
+            }
+            if (fresh.accessToken != settings.driveAccessToken) {
+                saveSettings(settings.copy(driveAccessToken = fresh.accessToken, driveTokenExpiresAt = fresh.expiresAtMs))
+            }
+            val bundle = buildNotebookLmBundle(doc)
+            val safeName = doc.title.lowercase().replace(Regex("[^a-z0-9áéíóúñ]+"), "_").trim('_').take(40).ifBlank { "fuente" }
+            val fileName = "${safeName}_NotebookLM.md"
+            val res = driveService.uploadMarkdownNote(
+                accessToken = fresh.accessToken,
+                fileName = fileName,
+                markdownContent = bundle,
+                folderId = null,
+                folderName = "Catedra_NotebookLM"
+            )
+            res.onSuccess {
+                showMessage("Subido a Drive / Catedra_NotebookLM/$fileName. En NotebookLM elige '+ Agregar fuente → Google Drive'.")
+            }.onFailure { err ->
+                showMessage(err.message ?: "No se pudo subir a Drive")
+            }
+        }
+    }
+
+    fun generateAndPlayAudioOverview(doc: StudyDocument) {
+        if (_uiState.value.isTeacherThinking) return
+        loadDocumentSession(doc.id)
+        _uiState.update { it.copy(isTeacherThinking = true) }
+        viewModelScope.launch {
+            val sections = knowledgeStore.loadSections(doc.id)
+            val notes = db.getNotes(doc.id)
+            val res = aiEngine.generateAudioOverviewScript(_uiState.value.settings, doc, sections, notes)
+            res.onSuccess { script ->
+                val msg = ChatMessage(
+                    id = UUID.randomUUID().toString(),
+                    documentId = doc.id,
+                    role = MessageRole.TEACHER,
+                    content = "**Audio-Resumen (estilo NotebookLM):**\n\n$script",
+                    timestamp = System.currentTimeMillis(),
+                    engineBadge = "Audio-Resumen"
+                )
+                db.insertMessage(msg)
+                _uiState.update {
+                    it.copy(
+                        activeMessages = db.getMessages(doc.id),
+                        documents = db.getAllDocuments(),
+                        isTeacherThinking = false,
+                        snackbarMessage = "Reproduciendo Audio-Resumen en voz alta..."
+                    )
+                }
+                navigateTo(CatedraScreen.Chat(doc.id))
+                voiceManager.speakSingleMessage(script)
+            }.onFailure { err ->
+                _uiState.update {
+                    it.copy(
+                        isTeacherThinking = false,
+                        snackbarMessage = err.message ?: "No se pudo generar el Audio-Resumen"
+                    )
+                }
+            }
+        }
     }
 
     // ---------- GOOGLE DRIVE API ----------

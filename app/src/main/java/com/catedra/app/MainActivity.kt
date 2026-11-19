@@ -1,8 +1,10 @@
 package com.catedra.app
 
 import android.Manifest
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Color
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -13,9 +15,10 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import androidx.browser.customtabs.CustomTabColorSchemeParams
+import androidx.browser.customtabs.CustomTabsIntent
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -35,9 +38,11 @@ import com.catedra.app.ui.CatedraViewModel
 import com.catedra.app.ui.screens.ChatScreen
 import com.catedra.app.ui.screens.DocumentReaderScreen
 import com.catedra.app.ui.screens.DriveBrowserScreen
+import com.catedra.app.ui.screens.EcosystemHubScreen
 import com.catedra.app.ui.screens.HomeScreen
 import com.catedra.app.ui.screens.NotesScreen
 import com.catedra.app.ui.screens.PaperSearchScreen
+import com.catedra.app.ui.screens.QuizScreen
 import com.catedra.app.ui.screens.SettingsScreen
 import com.catedra.app.ui.theme.CatedraTheme
 import java.io.File
@@ -83,13 +88,41 @@ class MainActivity : ComponentActivity() {
                 if (streamUri != null) {
                     viewModel.importDocumentFromUri(streamUri)
                 } else {
-                    val sharedText = intent.getStringExtra(Intent.EXTRA_TEXT)
+                    val sharedText = intent.getStringExtra(Intent.EXTRA_TEXT)?.trim()
                     if (!sharedText.isNullOrBlank()) {
-                        val subject = intent.getStringExtra(Intent.EXTRA_SUBJECT) ?: "Texto compartido"
-                        viewModel.createTextStudyDocument(subject, sharedText)
+                        // Si comparten un enlace de Google Scholar, DOI, arXiv o PDF -> resolver/descargar paper!
+                        val looksLikePaperLink = sharedText.contains("arxiv.org", true) ||
+                            sharedText.contains("doi.org", true) ||
+                            sharedText.contains("scholar.google", true) ||
+                            sharedText.lowercase().endsWith(".pdf") ||
+                            Regex("""10\.\d{4,9}/\S+""").containsMatchIn(sharedText)
+                        if (looksLikePaperLink) {
+                            viewModel.importPaperFromUrlOrDoi(sharedText)
+                        } else {
+                            val subject = intent.getStringExtra(Intent.EXTRA_SUBJECT) ?: "Texto compartido"
+                            viewModel.createTextStudyDocument(subject, sharedText)
+                        }
                     }
                 }
             }
+        }
+    }
+}
+
+private fun openInCustomTab(context: Context, rawUrl: String) {
+    val uri = Uri.parse(rawUrl)
+    runCatching {
+        val params = CustomTabColorSchemeParams.Builder()
+            .setToolbarColor(Color.parseColor("#2AABEE"))
+            .build()
+        CustomTabsIntent.Builder()
+            .setDefaultColorSchemeParams(params)
+            .setShowTitle(true)
+            .build()
+            .launchUrl(context, uri)
+    }.onFailure {
+        runCatching {
+            context.startActivity(Intent(Intent.ACTION_VIEW, uri))
         }
     }
 }
@@ -216,6 +249,7 @@ private fun CatedraRoot(viewModel: CatedraViewModel) {
                             onPickCameraPhoto = ::launchCameraScan,
                             onCreatePastedText = { title, body -> viewModel.createTextStudyDocument(title, body) },
                             onOpenPapers = { viewModel.navigateTo(CatedraScreen.Papers()) },
+                            onOpenEcosystem = { viewModel.navigateTo(CatedraScreen.Ecosystem) },
                             onOpenDrive = { viewModel.navigateTo(CatedraScreen.Drive) },
                             onOpenSettings = { viewModel.navigateTo(CatedraScreen.Settings) },
                             onTogglePin = viewModel::togglePinDocument,
@@ -249,6 +283,11 @@ private fun CatedraRoot(viewModel: CatedraViewModel) {
                             onSpeakMessage = { txt -> viewModel.voiceManager.speakSingleMessage(txt) },
                             onSaveMessageToNotes = { msg -> viewModel.saveMessageSnippetToNotes(msg) },
                             onDistillNotes = viewModel::distillConversationIntoCompactNotes,
+                            onOpenQuiz = { viewModel.navigateTo(CatedraScreen.Quiz(screen.documentId)) },
+                            onPlayAudioOverview = {
+                                uiState.activeDocument?.let { viewModel.generateAndPlayAudioOverview(it) }
+                            },
+                            onSendToNotebookLm = { viewModel.navigateTo(CatedraScreen.Ecosystem) },
                             onFindRelatedPapers = viewModel::openRelatedPapersForActiveDocument,
                             onShareNotesTxt = { shareNotes(asTxt = true) },
                             onToggleTtsPlayPause = viewModel.voiceManager::togglePlayPauseDocument,
@@ -324,9 +363,45 @@ private fun CatedraRoot(viewModel: CatedraViewModel) {
                             contextDocId = screen.contextDocId,
                             onBack = { viewModel.navigateBack() },
                             onSearch = viewModel::searchPapers,
+                            onOpenGoogleScholar = { q -> openInCustomTab(context, viewModel.buildGoogleScholarUrl(q)) },
+                            onImportUrlOrDoi = viewModel::importPaperFromUrlOrDoi,
+                            onOpenWebUrl = { url -> openInCustomTab(context, url) },
+                            onFormatApa = viewModel::formatApaCitation,
+                            onFormatBibTex = viewModel::formatBibTexCitation,
+                            onShowMessage = viewModel::showMessage,
                             onImportPdf = viewModel::importPaperPdf,
                             onStudyAbstract = viewModel::studyPaperFromAbstract,
                             onCompareInChat = viewModel::comparePaperInCurrentChat
+                        )
+                    }
+
+                    is CatedraScreen.Quiz -> {
+                        QuizScreen(
+                            quizState = uiState.quizState,
+                            onBack = { viewModel.navigateBack() },
+                            onRegenerateQuiz = viewModel::generateQuizForActiveDocument,
+                            onSelectOption = viewModel::selectQuizOption,
+                            onCitationClick = viewModel::openReaderAtCitation,
+                            onSaveMistakesToNotes = viewModel::saveQuizMistakesToNotes,
+                            onBuildFormsAppsScript = viewModel::buildGoogleFormsAppsScript,
+                            onOpenUrlInBrowser = { url -> openInCustomTab(context, url) },
+                            onShowMessage = viewModel::showMessage
+                        )
+                    }
+
+                    is CatedraScreen.Ecosystem -> {
+                        EcosystemHubScreen(
+                            uiState = uiState,
+                            onBack = { viewModel.navigateBack() },
+                            onOpenUrl = { url -> openInCustomTab(context, url) },
+                            onBuildNotebookLmBundle = viewModel::buildNotebookLmBundle,
+                            onUploadNotebookLmToDrive = viewModel::uploadNotebookLmBundleToDrive,
+                            onPlayAudioOverview = viewModel::generateAndPlayAudioOverview,
+                            onLaunchQuizForDocument = { doc -> viewModel.navigateTo(CatedraScreen.Quiz(doc.id)) },
+                            onOpenDriveForForms = { viewModel.navigateTo(CatedraScreen.Drive) },
+                            onSearchGoogleScholar = { q -> openInCustomTab(context, viewModel.buildGoogleScholarUrl(q)) },
+                            onImportPaperLinkOrDoi = viewModel::importPaperFromUrlOrDoi,
+                            onShowMessage = viewModel::showMessage
                         )
                     }
 
@@ -338,7 +413,7 @@ private fun CatedraRoot(viewModel: CatedraViewModel) {
                             onConnectDriveOAuth = {
                                 val url = viewModel.buildGoogleDriveConnectUrl()
                                 if (url != null) {
-                                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+                                    openInCustomTab(context, url)
                                 } else {
                                     viewModel.showMessage("Primero pega la URL de tu puente Render en Ajustes → Google Drive.")
                                     viewModel.navigateTo(CatedraScreen.Settings)
@@ -348,6 +423,9 @@ private fun CatedraRoot(viewModel: CatedraViewModel) {
                             onDisconnectDrive = viewModel::disconnectGoogleDrive,
                             onRefreshDrive = viewModel::loadDriveFiles,
                             onImportDriveFile = viewModel::importDriveFile,
+                            onOpenGoogleForm = { form ->
+                                openInCustomTab(context, "https://docs.google.com/forms/d/${form.id}/edit")
+                            },
                             onOpenSettings = { viewModel.navigateTo(CatedraScreen.Settings) }
                         )
                     }

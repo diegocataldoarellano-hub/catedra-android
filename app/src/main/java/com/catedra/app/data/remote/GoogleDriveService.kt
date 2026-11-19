@@ -113,6 +113,7 @@ class GoogleDriveService {
                     "mimeType='application/vnd.google-apps.document' or " +
                     "mimeType='application/vnd.google-apps.spreadsheet' or " +
                     "mimeType='application/vnd.google-apps.presentation' or " +
+                    "mimeType='application/vnd.google-apps.form' or " +
                     "mimeType='application/vnd.openxmlformats-officedocument.wordprocessingml.document' or " +
                     "mimeType='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' or " +
                     "mimeType='application/vnd.openxmlformats-officedocument.presentationml.presentation' or " +
@@ -219,11 +220,12 @@ class GoogleDriveService {
         accessToken: String,
         fileName: String,
         markdownContent: String,
-        folderId: String? = null
+        folderId: String? = null,
+        folderName: String = "Catedra_Notas"
     ): Result<String> = withContext(Dispatchers.IO) {
         runCatching {
             require(accessToken.isNotBlank()) { "Conecta tu cuenta de Google Drive primero." }
-            val targetFolderId = folderId?.takeIf { it.isNotBlank() } ?: ensureNotesFolder(accessToken)
+            val targetFolderId = folderId?.takeIf { it.isNotBlank() } ?: ensureNamedFolder(accessToken, folderName)
             val existingFileId = findExistingNoteId(accessToken, fileName, targetFolderId)
 
             if (existingFileId != null) {
@@ -287,9 +289,10 @@ class GoogleDriveService {
         }.getOrNull()
     }
 
-    private fun ensureNotesFolder(accessToken: String): String {
+    private fun ensureNamedFolder(accessToken: String, folderName: String): String {
+        val escaped = folderName.replace("'", "\\'")
         val q = URLEncoder.encode(
-            "name='Catedra_Notas' and mimeType='application/vnd.google-apps.folder' and trashed=false",
+            "name='$escaped' and mimeType='application/vnd.google-apps.folder' and trashed=false",
             "UTF-8"
         )
         val searchReq = Request.Builder()
@@ -308,7 +311,7 @@ class GoogleDriveService {
         }
 
         val createBody = JSONObject().apply {
-            put("name", "Catedra_Notas")
+            put("name", folderName)
             put("mimeType", "application/vnd.google-apps.folder")
         }
         val createReq = Request.Builder()

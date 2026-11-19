@@ -15,12 +15,12 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.VolumeUp
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.material.icons.rounded.SkipPrevious
-import androidx.compose.material.icons.rounded.VolumeUp
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -125,7 +125,7 @@ fun TtsMiniPlayerBar(
                 }
             }
             Spacer(Modifier.width(4.dp))
-            Icon(Icons.Rounded.VolumeUp, contentDescription = null, tint = colors.accent, modifier = Modifier.size(16.dp))
+            Icon(Icons.AutoMirrored.Rounded.VolumeUp, contentDescription = null, tint = colors.accent, modifier = Modifier.size(16.dp))
             Spacer(Modifier.width(6.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(

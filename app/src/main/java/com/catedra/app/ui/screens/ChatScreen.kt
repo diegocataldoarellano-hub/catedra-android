@@ -34,20 +34,20 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.automirrored.rounded.MenuBook
 import androidx.compose.material.icons.automirrored.rounded.Send
+import androidx.compose.material.icons.automirrored.rounded.VolumeUp
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.BookmarkAdd
 import androidx.compose.material.icons.rounded.BookmarkAdded
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.GraphicEq
-import androidx.compose.material.icons.rounded.MenuBook
 import androidx.compose.material.icons.rounded.Mic
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.NoteAlt
 import androidx.compose.material.icons.rounded.Psychology
 import androidx.compose.material.icons.rounded.RecordVoiceOver
 import androidx.compose.material.icons.rounded.Stop
-import androidx.compose.material.icons.rounded.VolumeUp
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -102,6 +102,9 @@ fun ChatScreen(
     onSpeakMessage: (String) -> Unit,
     onSaveMessageToNotes: (ChatMessage) -> Unit,
     onDistillNotes: () -> Unit,
+    onOpenQuiz: () -> Unit,
+    onPlayAudioOverview: () -> Unit,
+    onSendToNotebookLm: () -> Unit,
     onFindRelatedPapers: () -> Unit,
     onShareNotesTxt: () -> Unit,
     onToggleTtsPlayPause: () -> Unit,
@@ -219,6 +222,18 @@ fun ChatScreen(
                         onClick = { showOverflowMenu = false; onReadDocumentAloud() }
                     )
                     DropdownMenuItem(
+                        text = { Text("Audio-Resumen (estilo NotebookLM)", color = colors.textPrimary) },
+                        onClick = { showOverflowMenu = false; onPlayAudioOverview() }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Quiz diagnóstico / Google Forms", color = colors.textPrimary) },
+                        onClick = { showOverflowMenu = false; onOpenQuiz() }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Enviar a NotebookLM / Forms / Scholar", color = colors.textPrimary) },
+                        onClick = { showOverflowMenu = false; onSendToNotebookLm() }
+                    )
+                    DropdownMenuItem(
                         text = { Text("Sintetizar lo aprendido (.md)", color = colors.textPrimary) },
                         onClick = { showOverflowMenu = false; onDistillNotes() }
                     )
@@ -330,9 +345,11 @@ fun ChatScreen(
             horizontalArrangement = Arrangement.spacedBy(7.dp)
         ) {
             QuickTutorChip("Resumen") { onSendMessage("/resumen") }
+            QuickTutorChip("Quiz / Forms") { onOpenQuiz() }
             QuickTutorChip("Preguntas") { onSendMessage("/preguntas") }
             QuickTutorChip("Evaluar comprensión") { onSendMessage("/evaluar") }
-            QuickTutorChip("Análisis crítico") { onSendMessage("/critica") }
+            QuickTutorChip("Crítica") { onSendMessage("/critica") }
+            QuickTutorChip("Audio-Resumen") { onPlayAudioOverview() }
             QuickTutorChip("Guardar aprendido") { onDistillNotes() }
         }
         HorizontalDivider(thickness = 0.5.dp, color = colors.divider)
@@ -348,7 +365,7 @@ fun ChatScreen(
         ) {
             IconButton(onClick = onOpenReader, modifier = Modifier.size(42.dp)) {
                 Icon(
-                    Icons.Rounded.MenuBook,
+                    Icons.AutoMirrored.Rounded.MenuBook,
                     contentDescription = "Abrir lector",
                     tint = colors.textSecondary,
                     modifier = Modifier.size(22.dp)
@@ -557,7 +574,7 @@ private fun TelegramMessageBubble(
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
                     if (!isUser) {
                         Icon(
-                            Icons.Rounded.VolumeUp,
+                            Icons.AutoMirrored.Rounded.VolumeUp,
                             contentDescription = "Escuchar",
                             tint = colors.textMuted,
                             modifier = Modifier

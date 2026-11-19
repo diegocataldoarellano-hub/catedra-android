@@ -193,3 +193,22 @@ data class StorageStats(
 ) {
     val totalBytes: Long get() = notesBytes + compressedIndexBytes + databaseBytes + cachedPapersBytes
 }
+
+data class QuizQuestion(
+    val id: Int,
+    val question: String,
+    val options: List<String>,
+    val correctIndex: Int,
+    val citationRef: String,
+    val explanation: String,
+    val commonMisconception: String
+)
+
+data class QuizSessionState(
+    val documentId: String = "",
+    val documentTitle: String = "",
+    val questions: List<QuizQuestion> = emptyList(),
+    val selectedAnswers: Map<Int, Int> = emptyMap(), // questionId -> chosen option index
+    val isLoading: Boolean = false,
+    val error: String? = null
+)

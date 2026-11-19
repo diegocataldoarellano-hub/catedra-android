@@ -24,7 +24,9 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.TextSnippet
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.AutoStories
 import androidx.compose.material.icons.rounded.CameraAlt
 import androidx.compose.material.icons.rounded.Close
@@ -39,7 +41,6 @@ import androidx.compose.material.icons.rounded.School
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Storage
-import androidx.compose.material.icons.rounded.TextSnippet
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DrawerValue
@@ -95,6 +96,7 @@ fun HomeScreen(
     onPickCameraPhoto: () -> Unit,
     onCreatePastedText: (String, String) -> Unit,
     onOpenPapers: () -> Unit,
+    onOpenEcosystem: () -> Unit,
     onOpenDrive: () -> Unit,
     onOpenSettings: () -> Unit,
     onTogglePin: (StudyDocument) -> Unit,
@@ -184,9 +186,13 @@ fun HomeScreen(
                     scope.launch { drawerState.close() }
                     onPickFile()
                 }
-                DrawerRow(Icons.Rounded.School, "Buscar Papers (OpenAlex / arXiv)") {
+                DrawerRow(Icons.Rounded.School, "Papers y Google Scholar") {
                     scope.launch { drawerState.close() }
                     onOpenPapers()
+                }
+                DrawerRow(Icons.Rounded.AutoAwesome, "NotebookLM · Forms · Scholar") {
+                    scope.launch { drawerState.close() }
+                    onOpenEcosystem()
                 }
                 DrawerRow(Icons.Rounded.Cloud, "Google Drive") {
                     scope.launch { drawerState.close() }
@@ -495,14 +501,22 @@ fun HomeScreen(
                 }
                 SheetActionItem(
                     icon = Icons.Rounded.School,
-                    title = "Buscar paper académico (OpenAlex / arXiv)",
-                    subtitle = "Importa PDFs científicos abiertos directo al chat"
+                    title = "Buscar Paper (Scholar / OpenAlex / arXiv)",
+                    subtitle = "Importa PDFs abiertos, DOIs o busca en Google Scholar"
                 ) {
                     showAddSheet = false
                     onOpenPapers()
                 }
                 SheetActionItem(
-                    icon = Icons.Rounded.TextSnippet,
+                    icon = Icons.Rounded.AutoAwesome,
+                    title = "NotebookLM · Google Forms · Scholar",
+                    subtitle = "Audio-resumen, cuestionarios exportables y fuentes en Drive"
+                ) {
+                    showAddSheet = false
+                    onOpenEcosystem()
+                }
+                SheetActionItem(
+                    icon = Icons.AutoMirrored.Rounded.TextSnippet,
                     title = "Pegar texto o lectura rápida",
                     subtitle = "Estudia un fragmento, artículo web o apuntes sueltos"
                 ) {

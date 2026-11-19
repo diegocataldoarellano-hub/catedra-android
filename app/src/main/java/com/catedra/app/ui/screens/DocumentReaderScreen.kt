@@ -27,16 +27,16 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.Chat
+import androidx.compose.material.icons.automirrored.rounded.FormatListBulleted
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
-import androidx.compose.material.icons.rounded.FormatListBulleted
+import androidx.compose.material.icons.automirrored.rounded.NoteAdd
+import androidx.compose.material.icons.automirrored.rounded.VolumeUp
 import androidx.compose.material.icons.rounded.Image
 import androidx.compose.material.icons.rounded.Mic
-import androidx.compose.material.icons.rounded.NoteAdd
 import androidx.compose.material.icons.rounded.TextFields
 import androidx.compose.material.icons.rounded.Translate
 import androidx.compose.material.icons.rounded.Visibility
-import androidx.compose.material.icons.rounded.VolumeUp
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -160,7 +160,7 @@ fun DocumentReaderScreen(
                 }
             }
             IconButton(onClick = { showTocSheet = true }) {
-                Icon(Icons.Rounded.FormatListBulleted, contentDescription = "Índice", tint = colors.textSecondary)
+                Icon(Icons.AutoMirrored.Rounded.FormatListBulleted, contentDescription = "Índice", tint = colors.textSecondary)
             }
         }
         HorizontalDivider(thickness = 0.5.dp, color = colors.divider)
@@ -327,12 +327,12 @@ fun DocumentReaderScreen(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceEvenly
             ) {
-                ReaderActionPill(Icons.Rounded.VolumeUp, "Escuchar") { onReadAloudFromHere(curIdx) }
+                ReaderActionPill(Icons.AutoMirrored.Rounded.VolumeUp, "Escuchar") { onReadAloudFromHere(curIdx) }
                 if (supportsVisual) {
                     ReaderActionPill(Icons.Rounded.Visibility, "Ver con IA") { onAskTeacherPage(true) }
                 }
                 ReaderActionPill(Icons.AutoMirrored.Rounded.Chat, "Preguntar") { onAskTeacherPage(false) }
-                ReaderActionPill(Icons.Rounded.NoteAdd, "+ Nota") { showQuickNoteDialog = true }
+                ReaderActionPill(Icons.AutoMirrored.Rounded.NoteAdd, "+ Nota") { showQuickNoteDialog = true }
             }
         }
     }

@@ -6,6 +6,7 @@ import com.catedra.app.data.model.ChatMessage
 import com.catedra.app.data.model.DocSection
 import com.catedra.app.data.model.MessageRole
 import com.catedra.app.data.model.NoteCategory
+import com.catedra.app.data.model.QuizQuestion
 import com.catedra.app.data.model.StudyDocument
 import com.catedra.app.data.model.StudyNote
 import com.catedra.app.data.model.TeacherTone
@@ -365,6 +366,159 @@ class DocenteAiEngine {
                 clean
             )
         }
+    }
+
+    /**
+     * Genera un cuestionario interactivo de comprensión lectora con diagnóstico de errores
+     * frecuentes y citas exactas del documento (listo también para exportar a Google Forms).
+     */
+    suspend fun generateComprehensionQuiz(
+        settings: AppSettings,
+        document: StudyDocument,
+        sections: List<DocSection>,
+        questionCount: Int = 5
+    ): Result<List<QuizQuestion>> = withContext(Dispatchers.IO) {
+        runCatching {
+            val active = resolveEffectiveProvider(settings)
+            val ctx = buildDocumentContext(
+                provider = active,
+                settings = settings,
+                document = document,
+                sections = sections,
+                userPrompt = "ideas centrales, tesis, conceptos clave, distinciones, evidencia y conclusiones",
+                focusSectionIndex = null,
+                useNvidiaRerank = false
+            ).contextText.take(36_000)
+
+            val sys = """
+                Eres un docente universitario diseñando una evaluación diagnóstica sobre "${document.title}".
+                Crea exactamente $questionCount preguntas de opción múltiple (4 opciones cada una) que evalúen comprensión real
+                (no memorización trivial) y detecten errores frecuentes de interpretación.
+                Responde ÚNICAMENTE con un JSON array válido sin texto adicional:
+                [
+                  {
+                    "question": "Pregunta clara y precisa",
+                    "options": ["Opción A", "Opción B", "Opción C", "Opción D"],
+                    "correctIndex": 0,
+                    "citation": "Pág. X o Sección X",
+                    "explanation": "Por qué la respuesta correcta se sostiene en el texto",
+                    "misconception": "Error típico de comprensión que lleva a elegir los distractores"
+                  }
+                ]
+            """.trimIndent()
+
+            val raw = callSimpleCompletion(active, settings, sys, "Contenido del documento:\n$ctx")
+            val parsed = parseQuizJson(raw)
+            if (parsed.isEmpty()) error("No se pudo estructurar el cuestionario. Intenta nuevamente.")
+            parsed
+        }
+    }
+
+    /**
+     * Genera un guion hablado estilo "Audio Overview / Podcast Docente" (inspirado en NotebookLM)
+     * pensado para escucharse en voz alta sin formato Markdown rígido.
+     */
+    suspend fun generateAudioOverviewScript(
+        settings: AppSettings,
+        document: StudyDocument,
+        sections: List<DocSection>,
+        notes: List<StudyNote>
+    ): Result<String> = withContext(Dispatchers.IO) {
+        runCatching {
+            val active = resolveEffectiveProvider(settings)
+            val ctx = buildDocumentContext(
+                provider = active,
+                settings = settings,
+                document = document,
+                sections = sections,
+                userPrompt = "síntesis global, tesis central, argumentos, puntos críticos y conclusiones",
+                focusSectionIndex = null,
+                useNvidiaRerank = false
+            ).contextText.take(40_000)
+
+            val notesLine = if (notes.isEmpty()) "" else "\nNotas previas del estudiante:\n" + notes.take(8).joinToString("\n") { "- ${it.content}" }
+
+            val sys = """
+                Eres un docente divulgador grabando un audio-resumen (estilo podcast de estudio NotebookLM) de unos 2 minutos
+                en español natural y fluido sobre "${document.title}".
+                REGLAS:
+                - Escribe texto corrido para ser escuchado en voz alta (SIN asteriscos, SIN viñetas, SIN tablas).
+                - Menciona naturalmente las páginas o secciones clave (ej. "en la página cuatro el autor sostiene...").
+                - Incluye: 1) De qué trata y por qué importa, 2) Los 3 pilares conceptuales, 3) Un error común al leer este texto, 4) Una pregunta crítica final para reflexionar.
+            """.trimIndent()
+
+            callSimpleCompletion(active, settings, sys, "Documento:\n$ctx$notesLine").trim()
+        }
+    }
+
+    fun buildGoogleFormsAppsScript(docTitle: String, questions: List<QuizQuestion>): String {
+        val safeTitle = docTitle.replace("\"", "'").take(90)
+        val sb = StringBuilder()
+        sb.appendLine("// Pega este script en https://script.new -> Guardar -> Ejecutar createCatedraQuizForm()")
+        sb.appendLine("function createCatedraQuizForm() {")
+        sb.appendLine("  var form = FormApp.create(\"Cátedra · Quiz: $safeTitle\");")
+        sb.appendLine("  form.setIsQuiz(true);")
+        sb.appendLine("  form.setDescription(\"Evaluación de comprensión generada desde Cátedra con citas del documento.\");")
+        for (q in questions) {
+            val qText = q.question.replace("\"", "'").replace("\n", " ")
+            val cite = if (q.citationRef.isNotBlank()) " [${q.citationRef}]" else ""
+            sb.appendLine("  (function() {")
+            sb.appendLine("    var item = form.addMultipleChoiceItem();")
+            sb.appendLine("    item.setTitle(\"$qText$cite\").setPoints(1).setRequired(true);")
+            sb.appendLine("    item.setChoices([")
+            q.options.forEachIndexed { idx, opt ->
+                val cleanOpt = opt.replace("\"", "'").replace("\n", " ")
+                val isCorrect = idx == q.correctIndex
+                val comma = if (idx < q.options.lastIndex) "," else ""
+                sb.appendLine("      item.createChoice(\"$cleanOpt\", $isCorrect)$comma")
+            }
+            sb.appendLine("    ]);")
+            val fb = q.explanation.replace("\"", "'").replace("\n", " ")
+            sb.appendLine("    item.setFeedbackForCorrect(FormApp.createFeedback().setText(\"$fb\").build());")
+            val wrongFb = q.commonMisconception.ifBlank { q.explanation }.replace("\"", "'").replace("\n", " ")
+            sb.appendLine("    item.setFeedbackForIncorrect(FormApp.createFeedback().setText(\"$wrongFb\").build());")
+            sb.appendLine("  })();")
+        }
+        sb.appendLine("  Logger.log(\"Formulario listo (editar): \" + form.getEditUrl());")
+        sb.appendLine("  Logger.log(\"Formulario listo (responder): \" + form.getPublishedUrl());")
+        sb.appendLine("}")
+        return sb.toString()
+    }
+
+    internal fun parseQuizJson(raw: String): List<QuizQuestion> {
+        val cleaned = raw
+            .replace(Regex("(?s)^```(?:json)?\\s*"), "")
+            .replace(Regex("(?s)\\s*```$"), "")
+            .trim()
+        val start = cleaned.indexOf('[')
+        val end = cleaned.lastIndexOf(']')
+        if (start < 0 || end <= start) return emptyList()
+        val arr = JSONArray(cleaned.substring(start, end + 1))
+        val out = mutableListOf<QuizQuestion>()
+        for (i in 0 until arr.length()) {
+            val obj = arr.getJSONObject(i)
+            val qText = obj.optString("question", "").trim()
+            val optsArr = obj.optJSONArray("options") ?: continue
+            val opts = mutableListOf<String>()
+            for (k in 0 until optsArr.length()) {
+                val o = optsArr.optString(k, "").trim()
+                if (o.isNotBlank()) opts.add(o)
+            }
+            if (qText.isBlank() || opts.size < 2) continue
+            val correctIdx = obj.optInt("correctIndex", 0).coerceIn(0, opts.lastIndex)
+            out.add(
+                QuizQuestion(
+                    id = i + 1,
+                    question = qText,
+                    options = opts,
+                    correctIndex = correctIdx,
+                    citationRef = obj.optString("citation", "").trim(),
+                    explanation = obj.optString("explanation", "").trim(),
+                    commonMisconception = obj.optString("misconception", "").trim()
+                )
+            )
+        }
+        return out
     }
 
     suspend fun testConnection(settings: AppSettings): Result<String> = withContext(Dispatchers.IO) {

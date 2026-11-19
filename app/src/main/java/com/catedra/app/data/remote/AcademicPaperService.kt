@@ -390,4 +390,140 @@ class AcademicPaperService {
             }
         }
     }
+
+    /**
+     * Resuelve un enlace compartido o copiado desde Google Scholar, Chrome, DOI o arXiv:
+     * - Si es un PDF directo o enlace de arXiv (/abs/ o /pdf/), entrega URL directa de PDF.
+     * - Si contiene un DOI (10.xxxx/...), consulta CrossRef para obtener metadatos, resumen y enlace.
+     */
+    suspend fun resolvePaperUrlOrDoi(rawInput: String): Result<PaperResult> = withContext(Dispatchers.IO) {
+        runCatching {
+            val trimmed = rawInput.trim()
+            require(trimmed.isNotBlank()) { "Pega un enlace de Google Scholar, DOI, arXiv o URL de PDF." }
+
+            // 1. Detectar arXiv URL o ID
+            val arxivMatch = Regex("""arxiv\.org/(?:abs|pdf)/([0-9]{4}\.[0-9]{4,5})""").find(trimmed)
+            if (arxivMatch != null) {
+                val arxivId = arxivMatch.groupValues[1]
+                val found = runCatching { searchArxiv(arxivId).firstOrNull() }.getOrNull()
+                if (found != null) return@runCatching found
+                return@runCatching PaperResult(
+                    id = "arxiv_$arxivId",
+                    title = "arXiv:$arxivId",
+                    authors = "arXiv",
+                    year = null,
+                    venue = "arXiv",
+                    citationCount = 0,
+                    abstractText = "",
+                    openAccessPdfUrl = "https://arxiv.org/pdf/$arxivId.pdf",
+                    landingPageUrl = "https://arxiv.org/abs/$arxivId",
+                    doi = null,
+                    source = "arXiv"
+                )
+            }
+
+            // 2. Detectar DOI (ej. 10.1038/nature12373 o https://doi.org/10.xxxx/...)
+            val doiMatch = Regex("""(10\.\d{4,9}/[-._;()/:A-Za-z0-9]+)""").find(trimmed)
+            if (doiMatch != null) {
+                val doi = doiMatch.groupValues[1].trimEnd('.', ',', ';', ')')
+                val encodedDoi = URLEncoder.encode(doi, "UTF-8")
+                val req = Request.Builder()
+                    .url("https://api.crossref.org/works/$encodedDoi")
+                    .header("User-Agent", "CatedraStudyApp/1.0 (mailto:catedra.study@example.com)")
+                    .get()
+                    .build()
+                client.newCall(req).execute().use { resp ->
+                    if (resp.isSuccessful) {
+                        val msg = JSONObject(resp.body?.string().orEmpty()).optJSONObject("message")
+                        if (msg != null) {
+                            val title = msg.optJSONArray("title")?.optString(0)?.trim().orEmpty().ifBlank { doi }
+                            val authorsArr = msg.optJSONArray("author")
+                            val authorsList = mutableListOf<String>()
+                            if (authorsArr != null) {
+                                for (a in 0 until minOf(authorsArr.length(), 4)) {
+                                    val ao = authorsArr.getJSONObject(a)
+                                    val full = listOf(ao.optCleanString("given"), ao.optCleanString("family"))
+                                        .filter { it.isNotBlank() }.joinToString(" ")
+                                    if (full.isNotBlank()) authorsList.add(full)
+                                }
+                                if (authorsArr.length() > 4) authorsList.add("et al.")
+                            }
+                            val year = msg.optJSONObject("published-print")
+                                ?.optJSONArray("date-parts")?.optJSONArray(0)?.optInt(0, 0)?.takeIf { it > 0 }
+                                ?: msg.optJSONObject("published-online")
+                                    ?.optJSONArray("date-parts")?.optJSONArray(0)?.optInt(0, 0)?.takeIf { it > 0 }
+                            val venue = msg.optJSONArray("container-title")?.optString(0)?.trim().orEmpty()
+                            val absClean = msg.optCleanString("abstract").replace(Regex("<[^>]+>"), " ").replace(Regex("\\s+"), " ").trim()
+                            return@runCatching PaperResult(
+                                id = "doi_${doi.hashCode()}",
+                                title = title,
+                                authors = authorsList.joinToString(", ").ifBlank { "Autores no especificados" },
+                                year = year,
+                                venue = venue.ifBlank { "CrossRef / DOI" },
+                                citationCount = msg.optInt("is-referenced-by-count", 0),
+                                abstractText = absClean,
+                                openAccessPdfUrl = if (trimmed.lowercase().endsWith(".pdf")) trimmed else null,
+                                landingPageUrl = "https://doi.org/$doi",
+                                doi = "https://doi.org/$doi",
+                                source = "DOI"
+                            )
+                        }
+                    }
+                }
+            }
+
+            // 3. URL directa a PDF
+            if (trimmed.startsWith("http", ignoreCase = true) && trimmed.lowercase().contains(".pdf")) {
+                val guessedName = trimmed.substringAfterLast('/').substringBefore('?').removeSuffix(".pdf").ifBlank { "Paper PDF" }
+                return@runCatching PaperResult(
+                    id = "pdf_${trimmed.hashCode()}",
+                    title = guessedName,
+                    authors = "Enlace directo PDF",
+                    year = null,
+                    venue = "Web / Google Scholar",
+                    citationCount = 0,
+                    abstractText = "",
+                    openAccessPdfUrl = trimmed,
+                    landingPageUrl = trimmed,
+                    doi = null,
+                    source = "PDF Web"
+                )
+            }
+
+            // 4. Fallback: buscar por título en las fuentes abiertas
+            val found = searchPapers(trimmed).getOrDefault(emptyList()).firstOrNull()
+                ?: error("No se encontró ese DOI o enlace. Prueba buscando por palabras clave.")
+            found
+        }
+    }
+
+    fun buildGoogleScholarUrl(query: String): String {
+        val clean = query.trim()
+        return if (clean.isBlank()) {
+            "https://scholar.google.com/?hl=es"
+        } else {
+            "https://scholar.google.com/scholar?hl=es&q=${URLEncoder.encode(clean, "UTF-8")}"
+        }
+    }
+
+    fun formatApaCitation(paper: PaperResult): String {
+        val yearStr = paper.year?.toString() ?: "s. f."
+        val doiStr = paper.doi?.takeIf { it.isNotBlank() }?.let { " $it" } ?: ""
+        return "${paper.authors} ($yearStr). ${paper.title}. ${paper.venue}.$doiStr"
+    }
+
+    fun formatBibTexCitation(paper: PaperResult): String {
+        val firstAuthor = paper.authors.substringBefore(',').substringBefore(' ').lowercase().replace(Regex("[^a-z]"), "").ifBlank { "paper" }
+        val yearStr = paper.year?.toString() ?: "nd"
+        val key = "${firstAuthor}$yearStr"
+        return buildString {
+            appendLine("@article{$key,")
+            appendLine("  title = {${paper.title}},")
+            appendLine("  author = {${paper.authors}},")
+            if (paper.year != null) appendLine("  year = {${paper.year}},")
+            appendLine("  journal = {${paper.venue}},")
+            if (!paper.doi.isNullOrBlank()) appendLine("  doi = {${paper.doi.removePrefix("https://doi.org/")}},")
+            append("}")
+        }
+    }
 }

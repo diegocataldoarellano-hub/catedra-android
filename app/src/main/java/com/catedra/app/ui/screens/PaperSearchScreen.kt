@@ -1,7 +1,8 @@
 package com.catedra.app.ui.screens
 
-import android.content.Intent
-import android.net.Uri
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -26,17 +27,23 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
-import androidx.compose.material.icons.rounded.CompareArrows
+import androidx.compose.material.icons.automirrored.rounded.CompareArrows
+import androidx.compose.material.icons.automirrored.rounded.MenuBook
 import androidx.compose.material.icons.rounded.Download
-import androidx.compose.material.icons.rounded.MenuBook
+import androidx.compose.material.icons.rounded.FormatQuote
+import androidx.compose.material.icons.rounded.Link
 import androidx.compose.material.icons.rounded.OpenInBrowser
+import androidx.compose.material.icons.rounded.School
 import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
@@ -65,6 +72,12 @@ fun PaperSearchScreen(
     contextDocId: String?,
     onBack: () -> Unit,
     onSearch: (query: String, onlyOa: Boolean, source: String, sortCited: Boolean) -> Unit,
+    onOpenGoogleScholar: (String) -> Unit,
+    onImportUrlOrDoi: (String) -> Unit,
+    onOpenWebUrl: (String) -> Unit,
+    onFormatApa: (PaperResult) -> String,
+    onFormatBibTex: (PaperResult) -> String,
+    onShowMessage: (String) -> Unit,
     onImportPdf: (PaperResult) -> Unit,
     onStudyAbstract: (PaperResult) -> Unit,
     onCompareInChat: (PaperResult, String) -> Unit
@@ -76,6 +89,8 @@ fun PaperSearchScreen(
     var onlyOa by remember { mutableStateOf(false) }
     var sourceFilter by remember { mutableStateOf("ALL") }
     var sortCited by remember { mutableStateOf(false) }
+    var showImportLinkDialog by remember { mutableStateOf(false) }
+    var paperForCiteDialog by remember { mutableStateOf<PaperResult?>(null) }
 
     Column(
         modifier = Modifier
@@ -117,7 +132,7 @@ fun PaperSearchScreen(
         }
         HorizontalDivider(thickness = 0.5.dp, color = colors.divider)
 
-        // Filtros limpios
+        // Filtros limpios + Google Scholar + Importar DOI/URL
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -125,6 +140,30 @@ fun PaperSearchScreen(
                 .padding(horizontal = 12.dp, vertical = 8.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
+            Row(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(15.dp))
+                    .background(colors.accent)
+                    .clickable { onOpenGoogleScholar(query) }
+                    .padding(horizontal = 10.dp, vertical = 5.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(Icons.Rounded.School, contentDescription = null, tint = Color.White, modifier = Modifier.size(14.dp))
+                Spacer(Modifier.width(4.dp))
+                Text("Google Scholar", style = MaterialTheme.typography.labelSmall, color = Color.White, fontWeight = FontWeight.SemiBold)
+            }
+            Row(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(15.dp))
+                    .background(colors.accentSoft)
+                    .clickable { showImportLinkDialog = true }
+                    .padding(horizontal = 10.dp, vertical = 5.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(Icons.Rounded.Link, contentDescription = null, tint = colors.accent, modifier = Modifier.size(14.dp))
+                Spacer(Modifier.width(4.dp))
+                Text("Pegar DOI / URL", style = MaterialTheme.typography.labelSmall, color = colors.accent)
+            }
             PaperFilterChip("Solo PDF abierto", onlyOa) {
                 onlyOa = !onlyOa
                 if (query.isNotBlank()) onSearch(query, onlyOa, sourceFilter, sortCited)
@@ -133,7 +172,7 @@ fun PaperSearchScreen(
                 sortCited = !sortCited
                 if (query.isNotBlank()) onSearch(query, onlyOa, sourceFilter, sortCited)
             }
-            PaperFilterChip("OpenAlex + arXiv", sourceFilter == "ALL") {
+            PaperFilterChip("Todas las fuentes", sourceFilter == "ALL") {
                 sourceFilter = "ALL"
                 if (query.isNotBlank()) onSearch(query, onlyOa, sourceFilter, sortCited)
             }
@@ -200,16 +239,75 @@ fun PaperSearchScreen(
                         onImportPdf = { onImportPdf(paper) },
                         onStudyAbstract = { onStudyAbstract(paper) },
                         onCompare = { docId -> onCompareInChat(paper, docId) },
-                        onOpenWeb = { url ->
-                            runCatching {
-                                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
-                            }
-                        }
+                        onCite = { paperForCiteDialog = paper },
+                        onOpenWeb = { url -> onOpenWebUrl(url) }
                     )
                     HorizontalDivider(thickness = 0.5.dp, color = colors.divider)
                 }
             }
         }
+    }
+
+    if (showImportLinkDialog) {
+        var linkText by remember { mutableStateOf("") }
+        AlertDialog(
+            onDismissRequest = { showImportLinkDialog = false },
+            containerColor = colors.surface,
+            title = { Text("Importar desde Scholar / DOI / PDF", color = colors.textPrimary) },
+            text = {
+                OutlinedTextField(
+                    value = linkText,
+                    onValueChange = { linkText = it },
+                    label = { Text("DOI, enlace arXiv o URL de PDF") },
+                    placeholder = { Text("10.1038/... o https://...") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    showImportLinkDialog = false
+                    onImportUrlOrDoi(linkText)
+                }) { Text("Importar", color = colors.accent) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showImportLinkDialog = false }) { Text("Cancelar") }
+            }
+        )
+    }
+
+    paperForCiteDialog?.let { p ->
+        val apa = remember(p.id) { onFormatApa(p) }
+        val bib = remember(p.id) { onFormatBibTex(p) }
+        AlertDialog(
+            onDismissRequest = { paperForCiteDialog = null },
+            containerColor = colors.surface,
+            title = { Text("Citar artículo (APA 7 / BibTeX)", color = colors.textPrimary) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("APA 7:", style = MaterialTheme.typography.labelSmall, color = colors.accent, fontWeight = FontWeight.Bold)
+                    Text(apa, style = MaterialTheme.typography.bodySmall, color = colors.textPrimary)
+                    Text("BibTeX:", style = MaterialTheme.typography.labelSmall, color = colors.accent, fontWeight = FontWeight.Bold)
+                    Text(bib, style = MaterialTheme.typography.bodySmall, color = colors.textSecondary)
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                    cm.setPrimaryClip(ClipData.newPlainText("Cita APA", apa))
+                    onShowMessage("Cita APA 7 copiada.")
+                    paperForCiteDialog = null
+                }) { Text("Copiar APA", color = colors.accent) }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                    cm.setPrimaryClip(ClipData.newPlainText("Cita BibTeX", bib))
+                    onShowMessage("Cita BibTeX copiada.")
+                    paperForCiteDialog = null
+                }) { Text("Copiar BibTeX", color = colors.textSecondary) }
+            }
+        )
     }
 }
 
@@ -240,6 +338,7 @@ private fun PaperResultRow(
     onImportPdf: () -> Unit,
     onStudyAbstract: () -> Unit,
     onCompare: (String) -> Unit,
+    onCite: () -> Unit,
     onOpenWeb: (String) -> Unit
 ) {
     val colors = LocalCatedraColors.current
@@ -329,7 +428,7 @@ private fun PaperResultRow(
                     .padding(horizontal = 11.dp, vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Icon(Icons.Rounded.MenuBook, contentDescription = null, tint = colors.accent, modifier = Modifier.size(15.dp))
+                Icon(Icons.AutoMirrored.Rounded.MenuBook, contentDescription = null, tint = colors.accent, modifier = Modifier.size(15.dp))
                 Spacer(Modifier.width(5.dp))
                 Text("Estudiar resumen", style = MaterialTheme.typography.labelSmall, color = colors.textPrimary)
             }
@@ -342,10 +441,22 @@ private fun PaperResultRow(
                         .padding(horizontal = 11.dp, vertical = 6.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(Icons.Rounded.CompareArrows, contentDescription = null, tint = colors.accent, modifier = Modifier.size(15.dp))
+                    Icon(Icons.AutoMirrored.Rounded.CompareArrows, contentDescription = null, tint = colors.accent, modifier = Modifier.size(15.dp))
                     Spacer(Modifier.width(5.dp))
                     Text("Comparar en chat", style = MaterialTheme.typography.labelSmall, color = colors.accent)
                 }
+            }
+            Row(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(colors.surfaceElevated)
+                    .clickable(onClick = onCite)
+                    .padding(horizontal = 10.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(Icons.Rounded.FormatQuote, contentDescription = null, tint = colors.textSecondary, modifier = Modifier.size(15.dp))
+                Spacer(Modifier.width(4.dp))
+                Text("Citar", style = MaterialTheme.typography.labelSmall, color = colors.textSecondary)
             }
             val webLink = paper.landingPageUrl ?: paper.doi
             if (!webLink.isNullOrBlank()) {

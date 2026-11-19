@@ -244,5 +244,46 @@ class CatedraCoreTests {
         assertTrue("Debe retornar resultados con PDF abierto (arXiv / Europe PMC / OpenAlex)", papers.isNotEmpty())
         assertTrue(papers.first().title.isNotBlank())
         assertTrue(!papers.first().openAccessPdfUrl.isNullOrBlank())
+
+        // Verificar Google Scholar URL + Citas APA 7 y BibTeX
+        val scholarUrl = service.buildGoogleScholarUrl("epistemología crítica")
+        assertTrue(scholarUrl.startsWith("https://scholar.google.com/scholar?hl=es&q="))
+        val apa = service.formatApaCitation(papers.first())
+        val bib = service.formatBibTexCitation(papers.first())
+        assertTrue(apa.contains(papers.first().title))
+        assertTrue(bib.startsWith("@article{"))
+    }
+
+    @Test
+    fun testQuizParserGoogleFormsScriptAndCosineSimilarity() {
+        val engine = DocenteAiEngine()
+        val rawQuiz = """
+            ```json
+            [
+              {
+                "question": "¿Qué distingue la falsabilidad de Popper?",
+                "options": ["Confirmación inductiva", "Posibilidad de refutación empírica", "Consenso social", "Autoridad académica"],
+                "correctIndex": 1,
+                "citation": "Pág. 4",
+                "explanation": "Popper sostiene que una teoría es científica si puede ser refutada.",
+                "misconception": "Confundir verificación repetida con falsabilidad."
+              }
+            ]
+            ```
+        """.trimIndent()
+        val questions = engine.parseQuizJson(rawQuiz)
+        assertEquals(1, questions.size)
+        assertEquals(1, questions[0].correctIndex)
+        assertEquals("Pág. 4", questions[0].citationRef)
+
+        val script = engine.buildGoogleFormsAppsScript("Epistemología", questions)
+        assertTrue(script.contains("FormApp.create"))
+        assertTrue(script.contains("form.setIsQuiz(true)"))
+        assertTrue(script.contains("Posibilidad de refutación empírica"))
+
+        val simSame = engine.cosineSimilarity(doubleArrayOf(1.0, 2.0, 3.0), doubleArrayOf(2.0, 4.0, 6.0))
+        val simOrtho = engine.cosineSimilarity(doubleArrayOf(1.0, 0.0), doubleArrayOf(0.0, 1.0))
+        assertTrue(simSame > 0.999)
+        assertTrue(simOrtho < 0.001)
     }
 }
